@@ -1,39 +1,37 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.training import checkpoints
 
-from arch_LSTM_DON_v2 import DON_LSTM
+from arch_grid_split_don import GridSplitBranchDeepONet
 from utils import train_test_split_unaligned
-from train_v2 import train
+from train_grid_split_don import train
 
 # =========================
 # CONFIG
 # =========================
-mode = "train"  # 'train' | 'predict' | 'optuna'
+mode = "predict"  # 'train' | 'predict' | 'optuna'
 
 DATA_DIR = "./preprocessing_output"
-# use a NEW checkpoint folder because the architecture changed
-CKPT_DIR = os.path.abspath("checkpoints_kde_new_DON_LSTM_v2/deeponet_params")
-PLOTS_DIR = "plots_DON_LSTM_v2"
+CKPT_DIR = os.path.abspath("checkpoints_grid_split_don/deeponet_params")
+PLOTS_DIR = "plots_grid_split_don"
 
 SEED = 0
 
 DEFAULT_MODEL_CFG = dict(
     latent_dim=512,
-    num_layers=4,
-    refiner_hidden=256,
+    num_layers=3,
     activation_name="tanh",
-    use_lstm_branch=False,
+    use_curve_bias=True,
 )
 
 DEFAULT_TRAIN_CFG = dict(
     lr=7e-4,
-    num_epochs=800,
-    batch_size=32,
+    num_epochs=500,
+    batch_size=256,
     l2_reg=0.0,
 )
 
@@ -56,7 +54,6 @@ def fit_log10_scaler(x, eps=1e-30):
     m, s = fit_standard_scaler(lx)
     return m, s, eps
 
-
 def apply_log10_scaler(x, m, s, eps=1e-30):
     lx = jnp.log10(jnp.clip(x, a_min=eps))
     return (lx - m) / s
@@ -77,39 +74,36 @@ def scale_outputs_train_test(y_train, y_test, apply_log = False):
             y_train = y_train.at[:, :, i].set(apply_log10_scaler(y_train[:, :, i], mi, si, eps))
             y_test  = y_test.at[:, :, i].set(apply_log10_scaler(y_test[:, :, i],  mi, si, eps))
         else:
-            mi, si  = fit_standard_scaler(y_train[:,:,:])
+            mi, si  = fit_standard_scaler(y_train[:,:,i])
             y_train = y_train.at[:,:,i].set(apply_standard_scaler(y_train[:,:,i], mi, si))
             y_test  = y_test.at[:,:,i].set(apply_standard_scaler(y_test[:,:,i], mi, si))
 
     return y_train, y_test
 
+
 # =========================
 # Load + split + scale data
 # =========================
-IC = jnp.load(os.path.join(DATA_DIR, "initial_conditions.npy"))
-output = jnp.load(os.path.join(DATA_DIR, "output.npy"))
+IC = np.load(os.path.join(DATA_DIR, "initial_conditions.npy"))
+output = np.load(os.path.join(DATA_DIR, "output.npy"))
 
 IC = jnp.array(IC, dtype=jnp.float32)
 output = jnp.array(output, dtype=jnp.float32)
 
-# ---- Fake time grid: length must match label sequence length ----
+# ---- Fake time grid: only for plotting / keeping the split logic unchanged ----
 N_eval = int(output.shape[1])
-t_grid_1d = jnp.linspace(0.0, 1.0, N_eval, dtype=jnp.float32)  # (N_eval,)
-time_fake = jnp.broadcast_to(t_grid_1d[None, :], (IC.shape[0], N_eval))  # (B, N_eval)
+t_grid_1d = jnp.linspace(0.0, 1.0, N_eval, dtype=jnp.float32)               # (N_eval,)
+time_fake = jnp.broadcast_to(t_grid_1d[None, :], (IC.shape[0], N_eval))     # (B, N_eval)
 
-IC_train, IC_test, output_train, output_test, time_train, time_test = train_test_split_unaligned(
+# We still use the same splitter so train/test stay aligned
+IC_train, IC_test, output_train, output_test, _, _ = train_test_split_unaligned(
     IC, output, time_fake, test_ratio=0.1, seed=SEED
 )
 
 IC_train = jnp.array(IC_train, dtype=jnp.float32)
 IC_test  = jnp.array(IC_test, dtype=jnp.float32)
 
-output_train, output_test = scale_outputs_train_test(output_train, output_test, apply_log = False)
-
-# time is already fake time in [0, 1]; do not log-scale it
-time_train = jnp.array(time_train, dtype=jnp.float32)
-time_test  = jnp.array(time_test, dtype=jnp.float32)
-
+output_train, output_test = scale_outputs_train_test(output_train, output_test)
 
 OUTPUT_DIM = int(output_train.shape[-1])
 
@@ -125,28 +119,18 @@ def get_activation(name: str):
     }
     return activation_map[name]
 
-def build_model(
-    latent_dim: int,
-    num_layers: int,
-    refiner_hidden: int,
-    activation_name: str,
-    use_lstm_branch: bool = False,
-):
+def build_model(latent_dim: int, num_layers: int, activation_name: str, use_curve_bias: bool):
     activation_fn = get_activation(activation_name)
 
-    trunk_layers = tuple([latent_dim for _ in range(num_layers)])
-    
-    branch_mlp = tuple([latent_dim for _ in range(max(2, num_layers - 1))])
+    branch_layers = tuple([latent_dim for _ in range(num_layers)])
 
-    model = DON_LSTM(
+    model = GridSplitBranchDeepONet(
+        branch_layers=branch_layers,
         latent_dim=int(latent_dim),
         output_dim=int(OUTPUT_DIM),
-        trunk_layers=trunk_layers,
-        refiner_hidden=int(refiner_hidden),
-        use_lstm_branch=use_lstm_branch,
-        branch_mlp=branch_mlp,
+        n_eval=int(N_eval),
         activation=activation_fn,
-        use_residual=True,
+        use_curve_bias=use_curve_bias,
     )
     return model
 
@@ -157,18 +141,15 @@ if mode == "train":
     model = build_model(
         latent_dim=DEFAULT_MODEL_CFG["latent_dim"],
         num_layers=DEFAULT_MODEL_CFG["num_layers"],
-        refiner_hidden=DEFAULT_MODEL_CFG["refiner_hidden"],
         activation_name=DEFAULT_MODEL_CFG["activation_name"],
-        use_lstm_branch=DEFAULT_MODEL_CFG["use_lstm_branch"],
+        use_curve_bias=DEFAULT_MODEL_CFG["use_curve_bias"],
     )
 
     trained_state = train(
         model,
         IC_train,
-        time_train,
         output_train,
         ic_test=IC_test,
-        t_test=time_test,
         y_test=output_test,
         num_epochs=DEFAULT_TRAIN_CFG["num_epochs"],
         batch_size=DEFAULT_TRAIN_CFG["batch_size"],
@@ -195,19 +176,16 @@ elif mode == "predict":
     model = build_model(
         latent_dim=DEFAULT_MODEL_CFG["latent_dim"],
         num_layers=DEFAULT_MODEL_CFG["num_layers"],
-        refiner_hidden=DEFAULT_MODEL_CFG["refiner_hidden"],
         activation_name=DEFAULT_MODEL_CFG["activation_name"],
-        use_lstm_branch=DEFAULT_MODEL_CFG["use_lstm_branch"],
+        use_curve_bias=DEFAULT_MODEL_CFG["use_curve_bias"],
     )
 
-    # create a dummy state with correct structure
+    # Dummy state with the right structure
     dummy_state = train(
         model,
         IC_train,
-        time_train,
         output_train,
         ic_test=IC_test,
-        t_test=time_test,
         y_test=output_test,
         num_epochs=0,
         batch_size=DEFAULT_TRAIN_CFG["batch_size"],
@@ -221,9 +199,9 @@ elif mode == "predict":
         target=dummy_state,
     )
 
-    y_pred = restored_state.apply_fn(restored_state.params, IC_test, time_test)
+    y_pred = restored_state.apply_fn(restored_state.params, IC_test)
     test_mse = np.mean((np.array(y_pred) - np.array(output_test)) ** 2)
-    print("Test MSE:", test_mse)
+    print("Test MSE:", float(test_mse))
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -253,7 +231,7 @@ elif mode == "predict":
             y_true = np.array(output_test[idx, :, i])
             y_model = np.array(y_pred[idx, :, i])
 
-            # same color for truth/pred, different linestyle
+            # same color for truth and prediction, different linestyle
             ax.plot(t_plot, y_true, color=color, linestyle="-")
             ax.plot(t_plot, y_model, color=color, linestyle="--")
 
@@ -262,10 +240,11 @@ elif mode == "predict":
         if i == 0:
             ax.set_ylabel("Scaled value")
         if i == max(0, OUTPUT_DIM // 2):
-            ax.set_xlabel("Fake time (0..1)")
+            ax.set_xlabel("Fixed grid (0..1)")
 
-    fig.suptitle("DON+LSTM vs Reference on Test Curves", fontsize=14)
+    fig.suptitle("Grid Split-Branch DeepONet vs Reference", fontsize=14)
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
     outpath = os.path.join(PLOTS_DIR, "test_predictions_comparison.png")
     plt.savefig(outpath, dpi=300)
     plt.close()
@@ -281,25 +260,22 @@ elif mode == "optuna":
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 3e-3, log=True)
         latent_dim = trial.suggest_int("latent_dim", 128, 768)
         num_layers = trial.suggest_int("num_layers", 2, 5)
-        refiner_hidden = trial.suggest_int("refiner_hidden", 64, 512)
         activation_name = trial.suggest_categorical("activation", ["tanh", "relu", "gelu", "silu"])
+        use_curve_bias = trial.suggest_categorical("use_curve_bias", [True, False])
 
         model = build_model(
             latent_dim=latent_dim,
             num_layers=num_layers,
-            refiner_hidden=refiner_hidden,
             activation_name=activation_name,
-            use_lstm_branch=False,
+            use_curve_bias=use_curve_bias,
         )
 
         try:
             trained_state = train(
                 model,
                 IC_train,
-                time_train,
                 output_train,
                 ic_test=IC_test,
-                t_test=time_test,
                 y_test=output_test,
                 num_epochs=300,
                 batch_size=DEFAULT_TRAIN_CFG["batch_size"],
@@ -308,7 +284,7 @@ elif mode == "optuna":
                 seed=SEED,
             )
 
-            y_pred = trained_state.apply_fn(trained_state.params, IC_test, time_test)
+            y_pred = trained_state.apply_fn(trained_state.params, IC_test)
             test_mse = np.mean((np.array(y_pred) - np.array(output_test)) ** 2)
             return float(test_mse)
 
