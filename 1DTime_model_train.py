@@ -2,6 +2,8 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
+from scipy.integrate import cumulative_trapezoid
 
 
 from autocvd import autocvd
@@ -14,7 +16,7 @@ import bayesflow as bf
 import keras
 from utils import train_test_split_IC_and_times
 
-MODE = 'evaluate'  # 'train' or 'evaluate'
+MODE = 'inverse_CDF'  # 'train' or 'evaluate', 'inverse_CDF'
 SEED = 0
 N_EPOCHS = 1000
 BATCH_SIZE = 60_000
@@ -164,225 +166,133 @@ if MODE == 'evaluate':
     exit()
 
 
-# %%
-# loss_plot = bf.diagnostics.plots.loss(history,)
+if MODE == "inverse_CDF":    
+    workflow.approximator = keras.models.load_model(
+        os.path.join(CHECKPOINT_DIR, f'model_noOT_{N_EPOCHS}_{BATCH_SIZE}_final.keras')
+    )
 
-# %%
-# df_val = pd.DataFrame(val_data)
-# conditions = ['Mstar', 'FeH', 'PMMA', 'PMMB', 'PMMM'] #, 'Xcen', 'logTeff','Patm', 'tau_cz', 'luminosity', 'Prot_mid', 'Bcoronal_mid', 'dMdt_mid']
-# grouped = df_val.groupby(conditions)['Age'].apply(np.array).reset_index()
-# val_data_grouped = {
-#     'Mstar': grouped['Mstar'].values,
-#     'FeH': grouped['FeH'].values,
-#     'PMMA': grouped['PMMA'].values,
-#     'PMMB': grouped['PMMB'].values,
-#     'PMMM': grouped['PMMM'].values,
-#     'Age': grouped['Age'].values,  # array of arrays
-# }
+    # Get validation data
+    _, val_IC, _, val_time = train_test_split_IC_and_times(IC, time, test_ratio=0.1, seed=SEED)
+    validation_set = {}
+    for i, k in enumerate(inference_conditions):
+        validation_set[k] = val_IC[:, i].reshape(-1, 1)
 
+    # Pick a validation sample
+    val_index = 1
+    conditions_index  = {k: validation_set[k][:, 0][val_index].reshape(1, 1) for k in inference_conditions}
+    observable_index = {}
+    observable_index['Age'] = val_time[val_index].reshape(1, -1)
+    sampled_ages = workflow.sample(
+                            num_samples = len(observable_index['Age'].flatten()),
+                            conditions  = conditions_index)
 
-# %%
-import keras
-workflow.approximator = keras.models.load_model('./models/model_500_2028.keras')
-val_index = 3886
-# val_index = 0
-conditions_i = {k: df_val[k][val_index].reshape(1, 1) for k in conditions}
-sample = workflow.sample(
-                        num_samples = len(df_val['Age'].iloc[val_index]),
-                        conditions  = conditions_i)
-print('N samples:', len(df_val['Age'].iloc[val_index]))
-print('Conditions used:', conditions_i)
+    # sampled_ages['Age'] has shape (1, num_samples, 1) — extract and flatten to (num_samples, 1)
+    sampled_ages_array = sampled_ages['Age'].reshape(-1, 1)
+    n_samples = len(sampled_ages_array)
 
+    # Replicate conditions for each sampled age
+    log_prob_data = {
+        k: np.tile(conditions_index[k], (n_samples, 1))  # (n_samples, 1)
+        for k in inference_conditions
+    }
+    log_prob_data['Age'] = sampled_ages_array  # (n_samples, 1)
 
-# %%
-if val_index == 0:
-    color = 'blue'
-else:
-    color = 'red'
-    val_index_label = 1
-fig = plt.figure(figsize=(10, 5))
-ax = fig.add_subplot(1, 1, 1)
-ax.hist(10**sample['Age'].flatten(), histtype='step',  label=f'Samples', color='Green')
-ax.hist(df_val['Age'][val_index].flatten(), histtype='step', label=f'Sim {val_index_label}', color=color)
-ax.set_xlabel('Age (Gyr)', fontsize=20)
-ax.set_yscale('log')
-ax.legend(fontsize=20)
+    # Evaluate log_prob — this goes through the adapter automatically
+    log_probs = workflow.log_prob(log_prob_data)
+    print(f"log_probs shape: {log_probs.shape}")
+    print(f"log_probs min: {log_probs.min()}, max: {log_probs.max()}")
 
-# %%
-# ...existing code...
+    # Convert to PDF values
+    pdf_values = np.exp(log_probs.flatten())
 
-# We have to do the inverse
-n_samples = len(df_val['Age'][val_index])
-x = np.log10(df_val['Age'][val_index]).reshape(-1, 1)
-# Get conditions for the first validation sample and concatenate
-conditions_concat = np.array([[
-    df_val['Mstar'][val_index],
-    df_val['FeH'][val_index],
-    df_val['PMMA'][val_index],
-    df_val['PMMB'][val_index],
-    df_val['PMMM'][val_index]
-]], dtype=np.float32)
+    # Sort by age for CDF construction
+    # sort_idx = np.argsort(sampled_ages_array.flatten())
+    # sorted_ages = sampled_ages_array.flatten()[sort_idx]
+    # sorted_pdf = pdf_values[sort_idx]
 
-# Broadcast to (n_samples, 5)
-conditions_broadcast = np.tile(conditions_concat, (n_samples, 1))
+    # # Build CDF from sorted samples via cumulative trapezoid
+    # from scipy.integrate import cumulative_trapezoid
+    # from scipy.interpolate import interp1d
 
-print('x shape:', x.shape)
-print('Conditions shape:', conditions_broadcast.shape)
+    # cdf_values = np.zeros_like(sorted_pdf)
+    # cdf_values[1:] = cumulative_trapezoid(sorted_pdf, sorted_ages)
+    # cdf_values /= cdf_values[-1]  # normalize to [0, 1]
+    # print('cdf_values:', cdf_values)
 
-z = workflow.inference_network._forward(
-    x, 
-    conditions=conditions_broadcast,
-)
+    # # Build CDF interpolation: x -> u
+    # cdf_fn = interp1d(sorted_ages, cdf_values, kind='cubic', bounds_error=False,
+    #                   fill_value=(0.0, 1.0))
 
-# %%
-fig = plt.figure(figsize=(10, 5))
-ax = fig.add_subplot(1, 2, 1)
-ax.hist(z.flatten(), label='z from x')
-ax.set_xlabel('z')
+    # # Build inverse CDF (quantile function): u -> x
+    # unique_mask = np.diff(cdf_values, prepend=-1) > 0
+    # quantile_fn = interp1d(cdf_values[unique_mask], sorted_ages[unique_mask],
+    #                        kind='cubic', bounds_error=False,
+    #                        fill_value=(sorted_ages[0], sorted_ages[-1]))
+    sort_idx = np.argsort(sampled_ages_array.flatten())
+    sorted_ages = sampled_ages_array.flatten()[sort_idx]
+    sorted_pdf = pdf_values[sort_idx]
 
-from scipy.stats import norm
+    # Remove duplicate ages by averaging their PDF values
+    unique_ages, inverse_idx = np.unique(sorted_ages, return_inverse=True)
+    unique_pdf = np.zeros_like(unique_ages)
+    np.add.at(unique_pdf, inverse_idx, sorted_pdf)
+    counts = np.bincount(inverse_idx).astype(float)
+    unique_pdf /= counts  # average PDF at duplicate points
 
-u = norm.cdf(z)
-ax = fig.add_subplot(1, 2, 2)
-ax.hist(u.flatten(), label='u from z')
-ax.set_xlabel('u')
+    print(f"Unique ages: {len(unique_ages)} out of {len(sorted_ages)} samples")
 
-# %%
-from scipy.stats import norm
+    # Build CDF from unique sorted samples via cumulative trapezoid
+    cdf_values = np.zeros_like(unique_pdf)
+    cdf_values[1:] = cumulative_trapezoid(unique_pdf, unique_ages)
+    cdf_values /= cdf_values[-1]  # normalize to [0, 1]
 
-# Sort x and get the sorting indices
-sort_idx = np.argsort(x.flatten())
-x_sorted = x[sort_idx]
-u_sorted = norm.cdf(np.array(z))[sort_idx]
+    # Choose interpolation kind based on number of unique points
+    interp_kind = 'cubic' if len(unique_ages) >= 4 else 'linear'
+    # interp_kind = 'linear'
 
-# Check for flips: where u decreases while x increases
-u_diff = np.diff(u_sorted.flatten())
-flip_mask = u_diff < 0  # True where u decreases (flip)
+    # Build CDF interpolation: x -> u
+    cdf_fn = interp1d(unique_ages, cdf_values, kind=interp_kind, bounds_error=False,
+                      fill_value=(0.0, 1.0))
 
-n_flips = np.sum(flip_mask)
-print(f"Total consecutive pairs: {len(u_diff)}")
-print(f"Number of flips (x_i < x_j but u_i > u_j): {n_flips}")
-print(f"Flip percentage: {100 * n_flips / len(u_diff):.2f}%")
+    # Build inverse CDF (quantile function): u -> x
+    # Ensure strict monotonicity in CDF for inversion
+    unique_mask = np.diff(cdf_values, prepend=-1) > 0
+    if np.sum(unique_mask) < 4:
+        interp_kind_inv = 'linear'
+    else:
+        interp_kind_inv = 'cubic'
 
-# Show the flipped pairs
-if n_flips > 0:
-    flip_indices = np.where(flip_mask)[0]
-    print("\nExample flips (sorted by x):")
-    for idx in flip_indices[:10]:  # show first 10
-        print(f"  x[{idx}]={x_sorted[idx, 0]:.4f} -> u={u_sorted[idx, 0]:.4f}  |  "
-              f"x[{idx+1}]={x_sorted[idx+1, 0]:.4f} -> u={u_sorted[idx+1, 0]:.4f}")
+    quantile_fn = interp1d(cdf_values[unique_mask], unique_ages[unique_mask],
+                           kind=interp_kind_inv, bounds_error=False,
+                           fill_value=(unique_ages[0], unique_ages[-1]))
 
-# Visualize
-fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-axes[0].scatter(x_sorted.flatten(), u_sorted.flatten(), s=5, alpha=0.5)
-axes[0].set_xlabel('x (log10 Age, sorted)')
-axes[0].set_ylabel('u')
-axes[0].set_title('x vs u (should be monotonically increasing)')
+    # Draw new samples via inverse CDF sampling
+    rng = np.random.default_rng(42)
+    u = np.linspace(0, 1, 3999)  # uniform samples in [0, 1]
+    inverse_cdf_samples = quantile_fn(u)
 
-axes[1].plot(u_diff, '.', markersize=3)
-axes[1].axhline(0, color='r', linestyle='--')
-axes[1].set_xlabel('Index (sorted by x)')
-axes[1].set_ylabel('Δu')
-axes[1].set_title(f'Consecutive u differences ({n_flips} flips)')
-plt.tight_layout()
+    # Determine grid bounds from the data (with some padding)
+    true_ages = val_time[val_index]
 
-# %%
-from scipy.stats import norm
-from collections import defaultdict
-import tqdm as tqdm
+    fig = plt.figure(figsize=(10, 5))
+    ax = fig.add_subplot(1, 2, 1)
+    ax.hist(10**inverse_cdf_samples, histtype='step', bins=20, label='Inverse CDF Samples', color='Blue')
+    ax.hist(10**true_ages.flatten(), histtype='step', bins=20, label=f'Sim {val_index}', color='Red')
+    ax.set_xlabel('Age (Gyr)', fontsize=20)
+    ax.set_yscale('log')
+    ax.legend(fontsize=20)
 
-# Group validation simulations by number of Age timesteps
-length_groups = defaultdict(list)
-for val_index in range(len(df_val)):
-    n = len(df_val['Age'][val_index])
-    if n < 2:
-        continue
-    length_groups[n].append(val_index)
+    ax = fig.add_subplot(1, 2, 2)
+    sort_index_inverse_cdf = np.argsort(inverse_cdf_samples)
+    sorted_inverse_cdf = inverse_cdf_samples[sort_index_inverse_cdf]
+    sorted_true_ages = true_ages.flatten()[np.argsort(true_ages.flatten())]
+    # ax.plot(10**sorted_true_ages, 10**cdf_fn(sorted_true_ages), label='True CDF', color='Red')
+    # ax.plot(10**sorted_inverse_cdf, 10**cdf_fn(sorted_inverse_cdf), label='Inverse CDF Samples', color='Blue')
+    ax.scatter(10**sorted_true_ages, 10**sorted_inverse_cdf, color='Red', s=10)
+    ax.plot([10**sorted_true_ages.min(), 10**sorted_true_ages.max()], [10**sorted_true_ages.min(), 10**sorted_true_ages.max()], 'k--', lw=2)
+    ax.set_xlabel('True', fontsize=20)
+    ax.set_ylabel('Predicted', fontsize=20)
+    ax.legend(fontsize=20)
 
-print(f"Unique lengths: {len(length_groups)}")
-print(f"Length distribution: {sorted((k, len(v)) for k, v in length_groups.items())}")
-
-def single_forward(x, conditions):
-    return workflow.inference_network._forward(x, conditions=conditions)
-
-# Max number of simulations per sub-batch (tune based on GPU memory)
-MAX_BATCH_SIZE = 54
-
-total_pairs = 0
-total_flips = 0
-flip_percentages = []
-
-for length, indices in tqdm.tqdm(length_groups.items(), desc="Processing groups"):
-    # Split indices into sub-batches for large groups
-    for batch_start in range(0, len(indices), MAX_BATCH_SIZE):
-        batch_indices = indices[batch_start:batch_start + MAX_BATCH_SIZE]
-
-        x_list = []
-        cond_list = []
-        for i in batch_indices:
-            x_i = np.log10(df_val['Age'][i]).reshape(-1, 1).astype(np.float32)
-            cond_i = np.tile(np.array([[
-                df_val['Mstar'][i],
-                df_val['FeH'][i],
-                df_val['PMMA'][i],
-                df_val['PMMB'][i],
-                df_val['PMMM'][i]
-            ]], dtype=np.float32), (length, 1))
-            x_list.append(x_i)
-            cond_list.append(cond_i)
-
-        # Single forward pass for the sub-batch
-        x_all = np.concatenate(x_list, axis=0)       # (sub_batch * length, 1)
-        cond_all = np.concatenate(cond_list, axis=0)  # (sub_batch * length, 5)
-
-        z_all = single_forward(x_all, cond_all)
-        z_all = np.array(z_all)
-
-        # Split back and compute flips per simulation
-        for j in range(len(batch_indices)):
-            start = j * length
-            end = (j + 1) * length
-            x_j = x_list[j]
-            z_j = z_all[start:end]
-
-            sort_idx = np.argsort(x_j.flatten())
-            u_sorted = norm.cdf(z_j)[sort_idx]
-            u_diff = np.diff(u_sorted.flatten())
-            n_flips = np.sum(u_diff < 0)
-            n_pairs = len(u_diff)
-
-            total_pairs += n_pairs
-            total_flips += n_flips
-            flip_percentages.append(100 * n_flips / n_pairs if n_pairs > 0 else 0)
-
-flip_percentages = np.array(flip_percentages)
-
-print(f"\n=== Flip Summary over {len(flip_percentages)} validation simulations ===")
-print(f"Total consecutive pairs: {total_pairs}")
-print(f"Total flips: {total_flips}")
-print(f"Overall flip percentage: {100 * total_flips / total_pairs:.2f}%")
-print(f"Per-simulation flip %: mean={flip_percentages.mean():.2f}%, "
-      f"median={np.median(flip_percentages):.2f}%, "
-      f"max={flip_percentages.max():.2f}%")
-print(f"Simulations with zero flips: {np.sum(flip_percentages == 0)} / {len(flip_percentages)}")
-
-# Histogram of per-simulation flip percentages
-fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-axes[0].hist(flip_percentages, bins=30, edgecolor='k')
-axes[0].set_xlabel('Flip percentage per simulation')
-axes[0].set_ylabel('Count')
-axes[0].set_title('Distribution of flip % across validation set')
-
-axes[1].hist(flip_percentages[flip_percentages > 0], bins=30, edgecolor='k')
-axes[1].set_xlabel('Flip percentage per simulation')
-axes[1].set_ylabel('Count')
-axes[1].set_title('Distribution of flip % (excluding zero-flip sims)')
-plt.tight_layout()
-
-# %%
-np.savez(f"./flip_percentages_{n_epochs}_{batch_size}.npz", flip_percentages=flip_percentages, )
-
-# %%
-
-
-
+    fig.savefig(f'./plots_flowmatching/inverse_cdf_samples_index_{val_index}.pdf')
+    plt.show()
