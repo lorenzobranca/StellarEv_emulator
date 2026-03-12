@@ -7,6 +7,7 @@ dependencies = [
     "autocvd",
     "bayesflow",
     "gpustat",
+    "flax",
     "jax[cuda]>=0.7.1",
     "joblib==1.5.2",
     "keras>=3.10",

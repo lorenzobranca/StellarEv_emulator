@@ -2,3 +2,4 @@
 *.keras
 *.pyc
 *.lock
+*checkpoints_grid_split_don
