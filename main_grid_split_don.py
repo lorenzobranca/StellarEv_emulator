@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import jax
 import jax.numpy as jnp
@@ -21,15 +21,17 @@ PLOTS_DIR = "plots_grid_split_don"
 
 SEED = 0
 
+#{'learning_rate': 0.0011755636775666748, 'latent_dim': 516, 'num_layers': 5, 'activation': 'gelu', 'use_curve_bias': True}
+
 DEFAULT_MODEL_CFG = dict(
-    latent_dim=512,
-    num_layers=3,
-    activation_name="tanh",
+    latent_dim=516,
+    num_layers=5,
+    activation_name="gelu",
     use_curve_bias=True,
 )
 
 DEFAULT_TRAIN_CFG = dict(
-    lr=7e-4,
+    lr=0.0011755636775666748,
     num_epochs=500,
     batch_size=256,
     l2_reg=0.0,
@@ -216,7 +218,7 @@ elif mode == "predict":
     ]
 
     num_examples = 5
-    rng = np.random.default_rng(123)
+    rng = np.random.default_rng(12)
     idxs = rng.integers(low=0, high=output_test.shape[0], size=num_examples)
 
     colors = plt.cm.tab10.colors[:num_examples]
