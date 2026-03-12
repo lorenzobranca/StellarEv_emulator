@@ -62,6 +62,16 @@ def train_test_split_unaligned(X, Y, t, test_ratio=0.1, seed=0):
     test_idx = indices[split_idx:]
     return X[train_idx], X[test_idx], Y[train_idx], Y[test_idx], t[train_idx], t[test_idx]
 
+def train_test_split_IC_and_times(X, t, test_ratio=0.1, seed=0):
+    """Splits X and Y into train and test sets using JAX."""
+    key = jax.random.PRNGKey(seed)
+    n = X.shape[0]
+    indices = jax.random.permutation(key, n)
+    split_idx = int(n * (1 - test_ratio))
+    train_idx = indices[:split_idx]
+    test_idx = indices[split_idx:]
+    return X[train_idx], X[test_idx], t[train_idx], t[test_idx]
+
 
 def plot_predictions(y_true, y_pred, sample_idx, save_path="plots/pred_vs_true.png"):
     """

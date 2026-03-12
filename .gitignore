@@ -1,0 +1,4 @@
+#bayesflow model checkpoint files
+*.keras
+*.pyc
+*.lock
