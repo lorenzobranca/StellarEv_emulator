@@ -16,13 +16,14 @@ import bayesflow as bf
 import keras
 from utils import train_test_split_IC_and_times
 
-MODE = 'inverse_CDF'  # 'train' or 'evaluate', 'inverse_CDF'
+MODE = 'train'  # 'train' or 'evaluate', 'inverse_CDF'
+TYPE_GENERATIVE_MODEL = 'flow_matching'  # 'flow_matching' or 'normalizing_flow'
 SEED = 0
-N_EPOCHS = 1000
-BATCH_SIZE = 60_000
-CHECKPOINT_DIR = './checkpoints'
+N_EPOCHS = 100
+BATCH_SIZE = 100_000
+CHECKPOINT_DIR = './checkpoints_202/'
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-DATA_DIR = "/export/scratch/lbranca/Amanda_emulator/parsed_rotevol/StellarEv_emulator/preprocessing_output"
+DATA_DIR = "./preprocessing_new/"
 IC = np.load(os.path.join(DATA_DIR, "initial_conditions.npy"))
 time = np.load(os.path.join(DATA_DIR, "time.npy"))
 inference_conditions = ['Mstar', 'FeH', 'PMMA', 'PMMB', 'PMMM']
@@ -36,15 +37,24 @@ adapter = (
         .rename('Age', "inference_variables")
     )
 
-workflow = bf.BasicWorkflow(
-        adapter=adapter,
-        inference_network=bf.networks.FlowMatching(),
-        standardize=['inference_variables', 'inference_conditions'],
-        checkpoint_filepath=CHECKPOINT_DIR,
-        checkpoint_name=f"model_noOT_{N_EPOCHS}_{BATCH_SIZE}.keras",
-    )
+#from hyperaparm 202
+inference_mlp_depth= 2
+inference_mlp_width= 409
+inference_time_embedding_dim= 16
 
-
+if TYPE_GENERATIVE_MODEL == 'flow_matching':
+    workflow = bf.BasicWorkflow(
+            adapter=adapter,
+            inference_network=bf.networks.FlowMatching(subnet_kwargs={
+                                                        "widths": [inference_mlp_width] * inference_mlp_depth,
+                                                        "time_embedding_dim": inference_time_embedding_dim,
+                                                        }),
+            standardize=['inference_variables', 'inference_conditions'],
+            checkpoint_filepath=CHECKPOINT_DIR,
+            checkpoint_name=f"{TYPE_GENERATIVE_MODEL}_model_noOT_{N_EPOCHS}_{BATCH_SIZE}",
+        )
+else:
+    pass
 
 if MODE == 'train':
     #Import and preprocess data for Bayesflow
@@ -95,10 +105,10 @@ if MODE == 'train':
             batch_size=BATCH_SIZE,
             verbose=2,
         )
-    workflow.approximator.save(os.path.join(CHECKPOINT_DIR, f'model_noOT_{N_EPOCHS}_{BATCH_SIZE}_final.keras'))
+    workflow.approximator.save(os.path.join(CHECKPOINT_DIR, f'{TYPE_GENERATIVE_MODEL}_{N_EPOCHS}_{BATCH_SIZE}_final.keras'))
 
 if MODE == 'evaluate':
-    workflow.approximator = keras.models.load_model(os.path.join(CHECKPOINT_DIR, f'model_noOT_{N_EPOCHS}_{BATCH_SIZE}_final.keras'))
+    workflow.approximator = keras.models.load_model(os.path.join(CHECKPOINT_DIR, f'model_noOT_{N_EPOCHS}_{BATCH_SIZE}.keras'))
 
     #we need to reload the data because the shapes have changed a lot in training
     train_IC, val_IC, train_time, val_time = train_test_split_IC_and_times(IC, time, test_ratio=0.1, seed=SEED)
