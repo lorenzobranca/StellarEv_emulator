@@ -1,5 +1,7 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+from autocvd import autocvd
+autocvd(num_gpus=1)
 
 import jax
 import jax.numpy as jnp
@@ -9,29 +11,31 @@ from flax.training import checkpoints
 from arch_grid_split_don import GridSplitBranchDeepONet
 from utils import train_test_split_unaligned
 from train_grid_split_don import train
+from optuna.storages import JournalStorage, JournalFileStorage
+
 
 # =========================
 # CONFIG
 # =========================
 mode = "predict"  # 'train' | 'predict' | 'optuna'
 
-DATA_DIR = "./preprocessing_output"
-CKPT_DIR = os.path.abspath("checkpoints_grid_split_don/deeponet_params")
-PLOTS_DIR = "plots_grid_split_don"
+DATA_DIR = "./preprocessing_new/"
+CKPT_DIR = os.path.abspath("checkpoints_grid_split_don_new/deeponet_params")
+PLOTS_DIR = "./plots_grid_split_don_new/"
 
 SEED = 0
 
 #{'learning_rate': 0.0011755636775666748, 'latent_dim': 516, 'num_layers': 5, 'activation': 'gelu', 'use_curve_bias': True}
 
 DEFAULT_MODEL_CFG = dict(
-    latent_dim=516,
+    latent_dim=736,
     num_layers=5,
-    activation_name="gelu",
-    use_curve_bias=True,
+    activation_name="silu",
+    use_curve_bias=False,
 )
 
 DEFAULT_TRAIN_CFG = dict(
-    lr=0.0011755636775666748,
+    lr=0.0010501629112109937,
     num_epochs=500,
     batch_size=256,
     l2_reg=0.0,
@@ -217,7 +221,7 @@ elif mode == "predict":
         r"Luminosity - Predicted Stellar Luminosity",
     ]
 
-    num_examples = 5
+    num_examples = 10
     rng = np.random.default_rng(12)
     idxs = rng.integers(low=0, high=output_test.shape[0], size=num_examples)
 
@@ -293,8 +297,10 @@ elif mode == "optuna":
         except Exception as e:
             print(f"[trial failed] {e}")
             return float("inf")
-
-    study = optuna.create_study(direction="minimize")
+        
+    study_name = 'study_deeponet'  # Unique identifier of the study.
+    storage_name = JournalStorage(JournalFileStorage("./optuna_new.log"))
+    study = optuna.create_study(direction="minimize", storage=storage_name, load_if_exists=True)
     study.optimize(objective, n_trials=180)
 
     print("Best trial:")

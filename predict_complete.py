@@ -4,11 +4,12 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.integrate import cumulative_trapezoid
 from scipy.stats import gaussian_kde
+import scipy
 
 from autocvd import autocvd
-# autocvd(num_gpus=0)
+autocvd(num_gpus=1)
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+# os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 if "KERAS_BACKEND" not in os.environ:
     os.environ["KERAS_BACKEND"] = "jax"
@@ -25,23 +26,23 @@ from arch_grid_split_don import GridSplitBranchDeepONet
 from train_grid_split_don import train
 
 
-DATA_DIR = "/export/scratch/lbranca/Amanda_emulator/parsed_rotevol/StellarEv_emulator/preprocessing_output"
-CKPT_DIR = os.path.abspath("checkpoints_grid_split_don/deeponet_params")
-PLOTS_DIR = "plots_complete"
+DATA_DIR = "./preprocessing_new"
+CKPT_DIR = os.path.abspath("checkpoints_grid_split_don_new/deeponet_params")
+PLOTS_DIR = "plots_complete_new_new"
 
 SEED = 0
 
 #{'learning_rate': 0.0011755636775666748, 'latent_dim': 516, 'num_layers': 5, 'activation': 'gelu', 'use_curve_bias': True}
 
 DEFAULT_MODEL_CFG = dict(
-    latent_dim=516,
+    latent_dim=736,
     num_layers=5,
-    activation_name="gelu",
-    use_curve_bias=True,
+    activation_name="silu",
+    use_curve_bias=False,
 )
 
 DEFAULT_TRAIN_CFG = dict(
-    lr=0.0011755636775666748,
+    lr=0.0010501629112109937,
     num_epochs=500,
     batch_size=256,
     l2_reg=0.0,
@@ -132,7 +133,8 @@ inference_conditions = ['Mstar', 'FeH', 'PMMA', 'PMMB', 'PMMM']
 #Bayesflow workflow setup
 N_EPOCHS = 1000
 BATCH_SIZE = 60_000
-CHECKPOINT_DIR = './checkpoints'
+# CHECKPOINT_DIR = './checkpoints/'
+CHECKPOINT_DIR = './checkpoints_nosplit/'
 adapter = (
         bf.adapters.Adapter()
         .to_array()
@@ -140,17 +142,24 @@ adapter = (
         .concatenate(inference_conditions, into="inference_conditions")
         .rename('Age', "inference_variables")
     )
-
+# inference_mlp_depth= 2
+# inference_mlp_width= 288
+# inference_time_embedding_dim= 28
 workflow = bf.BasicWorkflow(
         adapter=adapter,
-        inference_network=bf.networks.FlowMatching(),
+        inference_network=bf.networks.FlowMatching(
+                                                    # subnet_kwargs={
+                                                    #     "widths": [inference_mlp_width] * inference_mlp_depth,
+                                                    #     "time_embedding_dim": inference_time_embedding_dim,
+                                                    #     }
+                                                    ),
         standardize=['inference_variables', 'inference_conditions'],
         checkpoint_filepath=CHECKPOINT_DIR,
-        checkpoint_name=f"model_noOT_{N_EPOCHS}_{BATCH_SIZE}.keras",
+        checkpoint_name=f"flow_matching_noOT_{N_EPOCHS}_{BATCH_SIZE}.keras",
     )
 
 workflow.approximator = keras.models.load_model(
-    os.path.join(CHECKPOINT_DIR, f'model_noOT_{N_EPOCHS}_{BATCH_SIZE}_final.keras'))
+    os.path.join(CHECKPOINT_DIR, f'flow_matching_model_noOT_1000_60000.keras'))
 
 # =========================
 # Model builder
@@ -222,7 +231,7 @@ titles = [
 ]
 
 num_examples = 5
-rng = np.random.default_rng(12)
+rng = np.random.default_rng(7)
 idxs = rng.integers(low=0, high=output_test.shape[0], size=num_examples)
 
 #======================
@@ -239,54 +248,98 @@ idxs = rng.integers(low=0, high=output_test.shape[0], size=num_examples)
 #     return new_t
 # ...existing code...
 
-def kde_func(x, max_length_new_time, n_grid=2000):
-    """
-    Inverse CDF sampling using a KDE fitted to the bayesflow samples.
+# def kde_func(x, max_length_new_time, n_grid=2000):
+#     """
+#     Inverse CDF sampling using a KDE fitted to the bayesflow samples.
     
-    1. Fit a Gaussian KDE to the raw samples `x`.
-    2. Evaluate the KDE on a fine uniform grid spanning the sample range.
-    3. Build the CDF via cumulative trapezoid integration.
-    4. Invert the CDF with interpolation (quantile function).
-    5. Evaluate the quantile function on a uniform [0,1] grid.
-    """
+#     1. Fit a Gaussian KDE to the raw samples `x`.
+#     2. Evaluate the KDE on a fine uniform grid spanning the sample range.
+#     3. Build the CDF via cumulative trapezoid integration.
+#     4. Invert the CDF with interpolation (quantile function).
+#     5. Evaluate the quantile function on a uniform [0,1] grid.
+#     """
+#     kde = gaussian_kde(x)
+
+#     # Fine uniform grid over the sample range (with a small margin)
+#     grid = np.linspace(x.min(), x.max(), n_grid)
+
+#     # Evaluate PDF on the grid
+#     pdf_values = kde.evaluate(grid)
+
+#     # Build CDF via cumulative trapezoid
+#     cdf_values = np.zeros_like(pdf_values)
+#     cdf_values[1:] = cumulative_trapezoid(pdf_values, grid)
+#     cdf_values /= cdf_values[-1]  # normalise to [0, 1]
+
+#     # Ensure strict monotonicity for inversion
+#     unique_mask = np.diff(cdf_values, prepend=-1) > 0
+#     interp_kind = 'cubic' if np.sum(unique_mask) >= 4 else 'linear'
+
+#     # Inverse CDF (quantile function):  u -> age
+#     quantile_fn = interp1d(
+#         cdf_values[unique_mask], grid[unique_mask],
+#         kind=interp_kind, bounds_error=False,
+#         fill_value=(grid[0], grid[-1]),
+#     )
+
+#     # Draw new time points uniformly in [0, 1] and map through quantile fn
+#     u = np.linspace(0, 1, max_length_new_time)
+#     new_t = quantile_fn(u)
+#     return new_t
+
+def kde_func(x, max_length_new_time):
     kde = gaussian_kde(x)
-
-    # Fine uniform grid over the sample range (with a small margin)
-    margin = 0.05 * (x.max() - x.min())
-    grid = np.linspace(x.min() - margin, x.max() + margin, n_grid)
-
-    # Evaluate PDF on the grid
-    pdf_values = kde.evaluate(grid)
-
-    # Build CDF via cumulative trapezoid
-    cdf_values = np.zeros_like(pdf_values)
-    cdf_values[1:] = cumulative_trapezoid(pdf_values, grid)
-    cdf_values /= cdf_values[-1]  # normalise to [0, 1]
-
-    # Ensure strict monotonicity for inversion
-    unique_mask = np.diff(cdf_values, prepend=-1) > 0
-    interp_kind = 'cubic' if np.sum(unique_mask) >= 4 else 'linear'
-
-    # Inverse CDF (quantile function):  u -> age
-    quantile_fn = interp1d(
-        cdf_values[unique_mask], grid[unique_mask],
-        kind=interp_kind, bounds_error=False,
-        fill_value=(grid[0], grid[-1]),
-    )
-
-    # Draw new time points uniformly in [0, 1] and map through quantile fn
+    x_sorted = np.sort(x)
+    cdf_0 = np.array([kde.integrate_box_1d(-np.inf, xi) for xi in x_sorted])
+    # cdf_0 = np.array([kde.integrate_box_1d(x.min(), xi) for xi in x])
     u = np.linspace(0, 1, max_length_new_time)
-    new_t = quantile_fn(u)
+    new_t = np.interp(u, cdf_0, x)
     return new_t
+
+def plot_cdf_and_inverse(unique_ages, cdf_values, cdf_fn, quantile_fn, val_index, plots_dir, mode_tag):
+    """Save a separate figure with CDF and inverse-CDF interpolation diagnostics."""
+    if len(unique_ages) < 2:
+        return
+
+    x_dense = np.linspace(unique_ages.min(), unique_ages.max(), 1000)
+    u_dense = np.linspace(0.0, 1.0, 1000)
+
+    fig_diag, ax_diag = plt.subplots(1, 2, figsize=(12, 4))
+
+    # Left: CDF interpolation (x -> u)
+    ax_diag[0].scatter(unique_ages, cdf_values, s=8, alpha=0.5, label="CDF points")
+    ax_diag[0].plot(x_dense, cdf_fn(x_dense), lw=2, label="CDF interp")
+    ax_diag[0].set_xlabel("log10(Age)")
+    ax_diag[0].set_ylabel("CDF")
+    ax_diag[0].set_title(f"CDF | idx={val_index}")
+    ax_diag[0].grid(True, alpha=0.3)
+    ax_diag[0].legend()
+
+    # Right: inverse CDF interpolation (u -> x)
+    ax_diag[1].scatter(cdf_values, unique_ages, s=8, alpha=0.5, label="Inverse points")
+    ax_diag[1].plot(u_dense, quantile_fn(u_dense), lw=2, label="Inverse interp")
+    ax_diag[1].set_xlabel("u")
+    ax_diag[1].set_ylabel("log10(Age)")
+    ax_diag[1].set_title(f"Inverse CDF | idx={val_index}")
+    ax_diag[1].grid(True, alpha=0.3)
+    ax_diag[1].legend()
+
+    fig_diag.tight_layout()
+    out_diag = os.path.join(plots_dir, f"cdf_inverse_interp_{mode_tag}_idx_{val_index}.png")
+    fig_diag.savefig(out_diag, dpi=200)
+    plt.close(fig_diag)
+    print(f"Saved CDF/interp figure: {out_diag}")
 
 # ...existing code...
 
 
-INVERSE_CDF_MODE = 'bayesflow'  # 'bayesflow' or 'KDE'
+INVERSE_CDF_MODE = 'bayesflow'  # 'bayesflow', 'KDE', 'bayesflow_grid'
 validation_set = {}
 for i, k in enumerate(inference_conditions):
     validation_set[k] = val_IC[:, i].reshape(-1, 1)
 time_from_interpolation = np.zeros((len(idxs),3999))
+
+
 if INVERSE_CDF_MODE == 'bayesflow':
     fig = plt.figure(figsize=(15, 5))
     for j, val_index in enumerate(idxs):
@@ -295,12 +348,14 @@ if INVERSE_CDF_MODE == 'bayesflow':
         observable_index['Age'] = val_time[val_index].reshape(1, -1)
         sampled_ages = workflow.sample(
                                 num_samples = len(observable_index['Age'].flatten()),
+                                # num_samples = 50_000,
                                 conditions  = conditions_index)
 
         # sampled_ages['Age'] has shape (1, num_samples, 1) — extract and flatten to (num_samples, 1)
         sampled_ages_array = sampled_ages['Age'].reshape(-1, 1)
         ax = fig.add_subplot(1, len(idxs), j+1)
-        ax.hist(sampled_ages_array.flatten(), bins=50, alpha=0.7,label='sampled array')
+        ax.hist(10**sampled_ages_array.flatten(),histtype='step', bins=50, alpha=0.7,label='sampled array', density=True)
+        ax.hist(10**val_time[val_index].flatten(),histtype='step',  bins=50, alpha=0.7, label='True Age', density=True)
         n_samples = len(sampled_ages_array)
 
         # Replicate conditions for each sampled age
@@ -320,12 +375,14 @@ if INVERSE_CDF_MODE == 'bayesflow':
         sorted_ages = sampled_ages_array.flatten()[sort_idx]
         sorted_pdf = pdf_values[sort_idx]
 
-        # Remove duplicate ages by averaging their PDF values
-        unique_ages, inverse_idx = np.unique(sorted_ages, return_inverse=True)
-        unique_pdf = np.zeros_like(unique_ages)
-        np.add.at(unique_pdf, inverse_idx, sorted_pdf)
-        counts = np.bincount(inverse_idx).astype(float)
-        unique_pdf /= counts  # average PDF at duplicate points
+        # # Remove duplicate ages by averaging their PDF values
+        # unique_ages, inverse_idx = np.unique(sorted_ages, return_inverse=True)
+        # unique_pdf = np.zeros_like(unique_ages)
+        # np.add.at(unique_pdf, inverse_idx, sorted_pdf)
+        # counts = np.bincount(inverse_idx).astype(float)
+        # unique_pdf /= counts  # average PDF at duplicate points
+        unique_ages, unique_index = np.unique(sorted_ages, return_index=True)
+        unique_pdf = sorted_pdf[unique_index]
 
         print(f"Unique ages: {len(unique_ages)} out of {len(sorted_ages)} samples")
 
@@ -341,6 +398,7 @@ if INVERSE_CDF_MODE == 'bayesflow':
         # Build CDF interpolation: x -> u
         cdf_fn = interp1d(unique_ages, cdf_values, kind=interp_kind, bounds_error=False,
                         fill_value=(0.0, 1.0))
+        # cdf_fn = scipy.interpolate.PchipInterpolator(unique_ages, cdf_values, extrapolate=False)
 
         # Build inverse CDF (quantile function): u -> x
         # Ensure strict monotonicity in CDF for inversion
@@ -354,14 +412,82 @@ if INVERSE_CDF_MODE == 'bayesflow':
                             kind=interp_kind_inv, bounds_error=False,
                             fill_value=(unique_ages[0], unique_ages[-1]))
 
+        plot_cdf_and_inverse(
+            unique_ages=unique_ages,
+            cdf_values=cdf_values,
+            cdf_fn=cdf_fn,
+            quantile_fn=quantile_fn,
+            val_index=val_index,
+            plots_dir=PLOTS_DIR,
+            mode_tag=INVERSE_CDF_MODE,
+        )
+
+        # quantile_fn = scipy.interpolate.PchipInterpolator(cdf_values[unique_mask], 
+        #                                                   unique_ages[unique_mask], extrapolate=False)
+
         # Draw new samples via inverse CDF sampling
         rng = np.random.default_rng(42)
         u = np.linspace(0, 1, 3999)  # uniform samples in [0, 1]
         inverse_cdf_samples = quantile_fn(u)
 
         #attach
+        # time_from_interpolation[j, :] = inverse_cdf_samples
+        inverse_cdf_samples_sorted_idx = np.argsort(inverse_cdf_samples)
+        inverse_cdf_samples_sorted = inverse_cdf_samples[inverse_cdf_samples_sorted_idx]
+        time_from_interpolation[j, :] = inverse_cdf_samples_sorted
+        # time_from_interpolation[j, :] = sorted_ages
+        ax.hist(10**time_from_interpolation[j, :].flatten(), histtype='step',  bins=50, alpha=0.7,label='inverse cdf', density=True)
+        ax.legend()
+    fig.savefig(f'{PLOTS_DIR}/{INVERSE_CDF_MODE}_distribution_time.png')
+
+if INVERSE_CDF_MODE == 'bayesflow_grid':
+    fig = plt.figure(figsize=(15, 5))
+    for j, val_index in enumerate(idxs):
+        conditions_index  = {k: validation_set[k][:, 0][val_index].reshape(1, 1) for k in inference_conditions}
+        observable_index = {}
+        observable_index['Age'] = val_time[val_index].reshape(1, -1)
+        sampled_ages = workflow.sample(
+                                num_samples = len(observable_index['Age'].flatten()),
+                                # num_samples = 10_000,
+                                conditions  = conditions_index)
+
+        # sampled_ages['Age'] has shape (1, num_samples, 1) — extract and flatten to (num_samples, 1)
+        sampled_ages_array = sampled_ages['Age'].reshape(-1, 1)
+        ax = fig.add_subplot(1, len(idxs), j+1)
+        ax.hist(10**sampled_ages_array.flatten(),histtype='step', bins=50, alpha=0.7,label='sampled array', density=True)
+        ax.hist(10**val_time[val_index].flatten(),histtype='step',  bins=50, alpha=0.7, label='True Age', density=True)
+        n_samples = len(sampled_ages_array)
+
+        # Instead of evaluating log_prob on the randomly sampled ages, 
+        # evaluate it on a linearly spaced grid:
+        grid_ages = np.linspace(sampled_ages_array.min(), sampled_ages_array.max(), 1000).reshape(-1, 1)
+
+        log_prob_data = {
+            k: np.tile(conditions_index[k], (len(grid_ages), 1)) 
+            for k in inference_conditions
+        }
+        log_prob_data['Age'] = grid_ages
+
+        log_probs = workflow.log_prob(log_prob_data)
+        pdf_values = np.exp(log_probs.flatten())
+
+        # Now compute CDF on the evenly spaced grid
+        cdf_values = np.zeros_like(pdf_values)
+        cdf_values[1:] = cumulative_trapezoid(pdf_values, grid_ages.flatten())
+        cdf_values /= cdf_values[-1]  # normalize
+
+        # Inverse CDF
+        unique_mask = np.diff(cdf_values, prepend=-1) > 0
+        quantile_fn = interp1d(cdf_values[unique_mask], grid_ages.flatten()[unique_mask],
+                            kind='linear', bounds_error=False,
+                            fill_value=(grid_ages[0,0], grid_ages[-1,0]))
+
+        u = np.linspace(0, 1, 3999)
+        inverse_cdf_samples = quantile_fn(u)
+
+        #attach
         time_from_interpolation[j, :] = inverse_cdf_samples
-        ax.hist(time_from_interpolation[j, :].flatten(), bins=50, alpha=0.7,label='inverse cdf')
+        ax.hist(10**time_from_interpolation[j, :].flatten(), histtype='step',  bins=50, alpha=0.7,label='inverse cdf', density=True)
         ax.legend()
     fig.savefig(f'{PLOTS_DIR}/{INVERSE_CDF_MODE}_distribution_time.png')
 
@@ -374,15 +500,16 @@ elif INVERSE_CDF_MODE == 'KDE':
         observable_index['Age'] = val_time[val_index].reshape(1, -1)
         sampled_ages = workflow.sample(
                                 num_samples = len(observable_index['Age'].flatten()),
+                                # num_samples = 100_000,
                                 conditions  = conditions_index)
 
         # sampled_ages['Age'] has shape (1, num_samples, 1) — extract and flatten to (num_samples, 1)
         sampled_ages_array = sampled_ages['Age'].reshape(-1, 1)
         ax = fig.add_subplot(1, len(idxs), j+1)
-        ax.hist(sampled_ages_array.flatten(), bins=50, alpha=0.7,label='sampled array')
+        ax.hist(10**sampled_ages_array.flatten(), bins=50, alpha=0.7,label='sampled array', density=True)
         n_samples = len(sampled_ages_array)
         time_from_interpolation[j, :] = kde_func(sampled_ages_array.flatten(), max_length_new_time=3999)
-        ax.hist(time_from_interpolation[j, :].flatten(), bins=50, alpha=0.7,label='inverse cdf')
+        ax.hist(10**time_from_interpolation[j, :].flatten(), bins=50, alpha=0.7,label='inverse cdf', density=True)
         ax.legend()
         
     fig.savefig(f'{PLOTS_DIR}/{INVERSE_CDF_MODE}_distribution_time.png')
@@ -404,9 +531,8 @@ for i in range(OUTPUT_DIM):
         y_model = np.array(y_pred[idx, :, i])
 
         # same color for truth and prediction, different linestyle
-        ax.plot(val_time[idx, :], y_true, color=color, linestyle="-")
-        # ax.plot(val_time[idx, :], y_model, color=color, linestyle="--")
-        ax.plot(time_from_interpolation[j, :], y_model, color=color, linestyle="--")
+        ax.plot(10**val_time[idx, :], y_true, color=color, linestyle="-")
+        ax.plot(10**time_from_interpolation[j, :], y_model, color=color, linestyle="--")
         ax.set_xlabel('Age (Gyr)')
 
     ax.set_title(titles[i] if i < len(titles) else f"Output {i}", fontsize=10)
@@ -420,6 +546,35 @@ fig.suptitle("Grid Split-Branch DeepONet vs Reference", fontsize=14)
 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 outpath = os.path.join(PLOTS_DIR, f"test_predictions_comparison_{INVERSE_CDF_MODE}.png")
+plt.savefig(outpath, dpi=300)
+plt.close()
+print(f"Figure saved: {outpath}")
+
+#LOG VERSION
+fig, axes = plt.subplots(1, OUTPUT_DIM, figsize=(25, 4), sharex=True)
+for i in range(OUTPUT_DIM):
+    ax = axes[i] if OUTPUT_DIM > 1 else axes
+    for j, idx in enumerate(idxs):
+        color = colors[j]
+        y_true = np.array(output_test[idx, :, i])
+        y_model = np.array(y_pred[idx, :, i])
+
+        # same color for truth and prediction, different linestyle
+        ax.plot(val_time[idx, :], y_true, color=color, linestyle="-")
+        ax.plot(time_from_interpolation[j, :], y_model, color=color, linestyle="--")
+        ax.set_xlabel('Age (Gyr)')
+
+    ax.set_title(titles[i] if i < len(titles) else f"Output {i}", fontsize=10)
+    ax.grid(True)
+    if i == 0:
+        ax.set_ylabel("Scaled value")
+    if i == max(0, OUTPUT_DIM // 2):
+        ax.set_xlabel("Fixed grid (0..1)")
+
+fig.suptitle("Grid Split-Branch DeepONet vs Reference", fontsize=14)
+fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+outpath = os.path.join(PLOTS_DIR, f"test_predictions_log_comparison_{INVERSE_CDF_MODE}.png")
 plt.savefig(outpath, dpi=300)
 plt.close()
 print(f"Figure saved: {outpath}")
