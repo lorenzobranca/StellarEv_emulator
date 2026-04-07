@@ -4,3 +4,5 @@
 *.lock
 *checkpoints_grid_split_don
 *.npy
+*.npz
+*.log

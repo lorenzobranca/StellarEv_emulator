@@ -15,7 +15,7 @@ def main():
 
     from optuna.visualization import plot_pareto_front, plot_param_importances
     # storage = JournalStorage(JournalFileStorage("optuna_new.log"))
-    storage = JournalStorage(JournalFileStorage("optuna_flowmatching.log"))
+    storage = JournalStorage(JournalFileStorage("optuna_new_log15_time_diff.log"))
     studies = optuna.get_all_study_summaries(storage=storage)
     print("Available studies:")
     for study in studies:
@@ -23,7 +23,8 @@ def main():
     study = optuna.load_study(
         # study_name="study_CompositionalDiffusionModel",
         # study_name='no-name-a7b6b064-97b5-4d2f-be07-8ba085c972e6',
-        study_name='study_flowmatching',
+        # study_name='study_flowmatching',
+        study_name='study_deeponet',
         storage=storage,
     )
     # fig = optuna.visualization.plot_optimization_history(study)
