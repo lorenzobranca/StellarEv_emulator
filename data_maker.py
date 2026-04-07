@@ -7,8 +7,8 @@ import scipy
 from scipy.stats import gaussian_kde
 
 path_to_data = '/export/scratch/lbranca/Amanda_emulator/parsed_rotevol/master_Prot0.dat'
-directory_output_name = './preprocessing_new/'
-directory_plot_examples = './plots_examples/new/'
+directory_output_name = './preprocessing_new_log15/'
+directory_plot_examples = './plots_examples/new_log15/'
 columns_to_drop = [' Xcen',
                 ' Prot (fast)',
                 ' Bcoronal(fast)', ' dMdt(fast)',
@@ -59,6 +59,14 @@ def split_log10(arr, split=False):
         return arr
     else:
         return np.log10(arr)
+     
+def loge(arr, ):
+    arr = np.copy(arr)
+    return np.log(arr)
+
+def log_15(arr, ):
+    arr = np.copy(arr)
+    return np.emath.logn(1.5, arr)
 
 
 
@@ -109,7 +117,8 @@ if __name__ == "__main__":
 
 
     #apply the log10 
-    df_train['Age'] = df_train['Age'].apply(lambda arr: split_log10(arr, split=split))
+    # df_train['Age'] = df_train['Age'].apply(lambda arr: split_log10(arr, split=split))
+    df_train['Age'] = df_train['Age'].apply(lambda arr: log_15(arr))
     df_train['output'] = df_train['output'].apply(lambda arr: log10_func(arr))
 
     #apply the kde transformation to the Age column and create the new time column from the quantiles
