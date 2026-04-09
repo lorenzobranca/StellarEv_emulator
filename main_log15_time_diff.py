@@ -21,7 +21,7 @@ mode = "predict"  # 'train' | 'predict' | 'optuna'
 
 DATA_DIR  = "/export/data/vgiusepp/StellarEv_emulator/preprocessing_new_log15/"
 CKPT_DIR  = os.path.abspath("checkpoints_new/deeponet_params_new_log15_time_diff/")
-PLOTS_DIR = "./plots_new_log15_time_diff/"
+PLOTS_DIR = "./plots/plots_new_log15_time_diff/"
 TIME_DIR  = "./preprocessing_new_log15/"
 
 SEED = 0
