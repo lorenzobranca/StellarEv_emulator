@@ -21,9 +21,12 @@ Emulator for YRAC
 
 # TODO
 - making of a function that calls all the main_* and plot_combined in backhand instead of multiple files
+- ensamble of models to mitigate the errors (train multiple DeepOnet on time/time_diff and take the average of the this model as time prediction)
+- train splitt model for time < 1 Gyr and time > 1 Gyr
 - maybe checking what happens when combining main_log15_time results for time< 1Gyr  and main_log15_time_diff results for time>1Gyr 
 - why 1 Gyr? Could be different
 - main_log15_time goes back in time also at the beginning, we should look out for that (dangerous)
 - using a simple MLP for predicting time/time_diff?
 - training a deeponet on output and time diff (need to create a main_log15_timeconcatenated_diff) 
 - I believe that the problems of main_log15_time_diff at small times is due to an over/undershooting of the very first time step (need to check)
+- ask for more simulations?
