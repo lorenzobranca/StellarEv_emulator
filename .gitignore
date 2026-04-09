@@ -6,3 +6,5 @@
 *.npy
 *.npz
 *.log
+checkpoint*/
+*.csv

@@ -6,10 +6,10 @@ from scipy.integrate import cumulative_trapezoid
 from scipy.stats import gaussian_kde
 import scipy
 
-from autocvd import autocvd
-autocvd(num_gpus=1)
+# from autocvd import autocvd
+# autocvd(num_gpus=1)
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 if "KERAS_BACKEND" not in os.environ:
     os.environ["KERAS_BACKEND"] = "jax"
@@ -28,7 +28,7 @@ from train_grid_split_don import train
 
 DATA_DIR = "./preprocessing_new"
 CKPT_DIR = os.path.abspath("checkpoints_grid_split_don_new/deeponet_params")
-PLOTS_DIR = "plots_complete_new_new"
+PLOTS_DIR = "plots_complete_new_new_log"
 
 SEED = 0
 
@@ -307,8 +307,8 @@ def plot_cdf_and_inverse(unique_ages, cdf_values, cdf_fn, quantile_fn, val_index
     fig_diag, ax_diag = plt.subplots(1, 2, figsize=(12, 4))
 
     # Left: CDF interpolation (x -> u)
-    ax_diag[0].scatter(unique_ages, cdf_values, s=8, alpha=0.5, label="CDF points")
-    ax_diag[0].plot(x_dense, cdf_fn(x_dense), lw=2, label="CDF interp")
+    ax_diag[0].scatter(unique_ages, np.log10(cdf_values+1e-10), s=8, alpha=0.5, label="CDF points")
+    ax_diag[0].plot(x_dense, np.log10(cdf_fn(x_dense)+1e-10), lw=2, label="CDF interp")
     ax_diag[0].set_xlabel("log10(Age)")
     ax_diag[0].set_ylabel("CDF")
     ax_diag[0].set_title(f"CDF | idx={val_index}")
@@ -316,8 +316,8 @@ def plot_cdf_and_inverse(unique_ages, cdf_values, cdf_fn, quantile_fn, val_index
     ax_diag[0].legend()
 
     # Right: inverse CDF interpolation (u -> x)
-    ax_diag[1].scatter(cdf_values, unique_ages, s=8, alpha=0.5, label="Inverse points")
-    ax_diag[1].plot(u_dense, quantile_fn(u_dense), lw=2, label="Inverse interp")
+    ax_diag[1].scatter(np.log10(cdf_values+1e-10), unique_ages, s=8, alpha=0.5, label="Inverse points")
+    ax_diag[1].plot(np.log10(u_dense+1e-10), quantile_fn(u_dense), lw=2, label="Inverse interp")
     ax_diag[1].set_xlabel("u")
     ax_diag[1].set_ylabel("log10(Age)")
     ax_diag[1].set_title(f"Inverse CDF | idx={val_index}")
