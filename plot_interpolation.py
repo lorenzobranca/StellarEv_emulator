@@ -5,7 +5,7 @@ import os
 directory_output_name = './preprocessing_output_split/'
 initial_conditions = ['Mstar', 'FeH', 'PMMA', 'PMMB', 'PMMM'] 
 output_cols = ['logTeff', 'Prot_mid', 'Bcoronal_mid', 'Patm', 'tau_cz', 'dMdt_mid', 'luminosity']
-directory_plot_examples = './plots_examples/'
+directory_plot_examples = './plots/plots_examples/'
 num_examples = 10
 
 
