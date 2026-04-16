@@ -1,32 +1,173 @@
 # StellarEv_emulator
-Emulator for YRAC
 
-## Training 
-- main_grid_split_don is DeepOnet for only output
-- main_log15_time is DeepOnet for only time prediction
-- main_log15_time_diff is DeepOnet for only diff time prediction
-- main_log15_timeconcatenated is DeepOnet for predicting time as an additional output (should we try to predict the time diff ?)
+Emulator for stellar-evolution tracks built with DeepONet-style models.
 
-## Plotting 
-- plot_interpolation is for checking that the interpolation when creating the dataset is working correctly (preprocessing)
-- plot_combined/plot_combined_diff take (offline) the deeponet on output and deeponet on time/time_diff and plot them together (final output)
+This repository contains two complementary neural surrogates:
 
-## Preprocessing 
-- data_maker creation of the training set with the interpolation and the KDE resampling of the time steps
+- a **time model** that predicts the time coordinate on a native latent domain `u ∈ [0,1]`
+- an **output model** that predicts the stellar quantities on the same native domain
 
-## Utils
-- train_grid_split_don_pos_diff/train_grid_split_don_pos/train_grid_split_don/ contains all the training rutines
-- arch_grid_split_don aarchitectures
-- utils splitting of the datasets
+The main user-facing script is:
 
-# TODO
-- making of a function that calls all the main_* and plot_combined in backhand instead of multiple files
-- ensamble of models to mitigate the errors (train multiple DeepOnet on time/time_diff and take the average of the this model as time prediction)
-- train splitt model for time < 1 Gyr and time > 1 Gyr
-- maybe checking what happens when combining main_log15_time results for time< 1Gyr  and main_log15_time_diff results for time>1Gyr 
-- why 1 Gyr? Could be different
-- main_log15_time goes back in time also at the beginning, we should look out for that (dangerous)
-- using a simple MLP for predicting time/time_diff?
-- training a deeponet on output and time diff (need to create a main_log15_timeconcatenated_diff) 
-- I believe that the problems of main_log15_time_diff at small times is due to an over/undershooting of the very first time step (need to check)
-- ask for more simulations?
+- **`make_inference_log.py`** — inference script for the current log-time model family
+
+A second user-facing inference script is planned:
+
+- **`make_inference_diff.py`** — future alternative expected to be less accurate at short times but more accurate at long times
+
+---
+
+## Repository structure
+
+### User inference
+
+- **`make_inference_log.py`**  
+  Main entry point for users. Loads the trained time and output checkpoints, reconstructs the native curves, and provides:
+  - predictions on the native domain `u`
+  - predictions in physical time
+  - optional queried outputs at user-requested times
+  - plotting utilities for `time(u)`, `output(u)`, and `output(time)`
+
+### Training scripts
+
+- **`main_log15_time.py`**  
+  Trains and evaluates the **time model**.
+
+- **`main_grid_split_don.py`**  
+  Trains and evaluates the **output model**.
+
+- **`main_log15_time_diff.py`**, **`main_time_diff.py`**, **`main_log15_timeconcatenated.py`**  
+  Experimental / alternative model variants.
+
+### Plotting and analysis
+
+- **`plot_combined.py`**, **`plot_combined_diff.py`**  
+  Combine independently predicted time and output curves for visualization.
+
+- **`plot_interpolation.py`**  
+  Checks the interpolation used during preprocessing.
+
+### Data preparation
+
+- **`data_maker.py`** / **`data_maker.ipynb`**  
+  Dataset generation and preprocessing.
+
+### Core modules
+
+- **`arch_grid_split_don.py`**  
+  Neural architecture definition.
+
+- **`train_grid_split_don.py`**  
+  Training routine for the output model.
+
+- **`train_grid_split_don_pos.py`**  
+  Training routine for the time model.
+
+- **`train_grid_split_don_pos_diff.py`**  
+  Training routine for the diff-time variant.
+
+- **`utils.py`**  
+  Dataset utilities and helper functions.
+
+---
+
+## Conceptual workflow
+
+The emulator works in two stages.
+
+1. The **time model** predicts a curve on the native domain `u ∈ [0,1]`.
+2. The **output model** predicts the stellar quantities on that same native domain.
+3. The inference script combines both predictions to obtain curves in physical time.
+
+So the native prediction domain is **not physical time directly**. Instead, the models first predict on the internal domain `u`, and physical-time curves are obtained afterward.
+
+---
+
+## Quick start
+
+### 1. Install dependencies
+
+The project is configured with a `pyproject.toml` file and requires Python `>=3.11,<3.12`.
+
+Typical dependencies include:
+
+- `jax[cuda]`
+- `flax`
+- `keras`
+- `numpy`
+- `scipy`
+- `matplotlib`
+- `optuna`
+
+Install with your preferred environment manager.
+
+### 2. Prepare checkpoints
+
+Make sure the trained checkpoints exist in the expected folders:
+
+- `checkpoints_new/deeponet_params_new_log15_time/`
+- `checkpoints_new/deeponet_params_new_log15_output/`
+
+### 3. Run inference
+
+The main user script is:
+
+```bash
+python make_inference_log.py
+```
+
+This script generates:
+
+- native prediction arrays (`.npz`)
+- plots in the inference output folder
+
+---
+
+## Using `make_inference_log.py`
+
+This script is intended for end users who want to:
+
+- provide one set of initial conditions
+- reconstruct the predicted time curve
+- reconstruct the predicted stellar-output curves
+- optionally evaluate outputs at specific requested times
+- save and plot the results
+
+At a high level, the script:
+
+1. loads the trained checkpoints
+2. rebuilds the two models with the saved architecture
+3. predicts the time and output curves on the native domain
+4. converts the time prediction back to physical time
+5. optionally interpolates to user-requested times
+6. saves results and figures
+
+---
+
+## Outputs
+
+Depending on the selected options, the inference scripts produce plots such as:
+
+- `time_vs_u.png`
+- `outputs_vs_u.png`
+- `outputs_vs_time.png`
+- query/interpolation result plots
+
+and NumPy archives such as:
+
+- `native_curves.npz`
+- `queried_outputs.npz`
+
+---
+
+## Notes
+
+- The current user-focused inference workflow is based on **`make_inference_log.py`**.
+- A future **`make_inference_diff.py`** will provide an alternative long-time inference mode.
+- The time and output models should be used together only when they come from compatible training/preprocessing pipelines.
+
+---
+
+## License
+
+This repository is released under the **GPL-3.0** license.
