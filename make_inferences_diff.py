@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 from typing import Optional, Union, Dict, Any
 
@@ -11,42 +11,51 @@ from flax.training import checkpoints
 from scipy.interpolate import interp1d
 
 from arch_grid_split_don import GridSplitBranchDeepONet
-from train_grid_split_don_pos import train as train_time
+from train_grid_split_don_pos_diff import train as train_time
 from train_grid_split_don import train as train_output
+from params_loader import ZenodoSource, restore_checkpoint_or_zenodo
 
+ZENODO = ZenodoSource(
+    record_url="https://zenodo.org/records/19736519",
+    asset_name="checkpoints_new.zip",
+)
 
 # ============================================================
 # USER CONFIG
 # ============================================================
 
-SAVE_DIR = "./inference_results/"
+SAVE_DIR = "./inference_results_diff/"
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# NOTE: Do NOT restore checkpoints at module import time.
+# The dummy TrainState skeletons are constructed inside the predictor classes
+# and then restored from disk (or downloaded from Zenodo if missing).
 
 IC_DIM = 5
 N_EVAL = 3999
 U_NATIVE = np.linspace(0.0, 1.0, N_EVAL, dtype=np.float64)
 
+
 OUTPUT_MODE = "scaled"   # "scaled" or "physical"
 
-# ----------------------------
-# Time model
-# ----------------------------
-TIME_CKPT_DIR = os.path.abspath("checkpoints_new/deeponet_params_new_log15_time/")
+TIME_CKPT_DIR = os.path.abspath("checkpoints_new/deeponet_params_new_log15_time_diff/")
 
 TIME_MODEL_CFG = dict(
-    latent_dim=532,
-    num_layers=5,
+    
+    # Defaults below follow main_log15_time_diff.py
+    latent_dim=138,
+    num_layers=7,
     output_dim=1,
-    activation_name="gelu",
+    activation_name="relu",
     use_curve_bias=True,
 )
 
 TIME_TRAIN_CFG = dict(
-    lr=0.0018983834952442974,
+    # Only used to build a dummy TrainState for checkpoint restore.
+    lr=0.0006587227663328755,
     batch_size=256,
-    l2_reg=0.0,
-    mono_weight=0.11396284752955148,
     seed=0,
+    
 )
 
 TIME_SCALER = dict(
@@ -55,6 +64,19 @@ TIME_SCALER = dict(
 )
 
 TIME_BASE = 1.5
+
+# Δt de-scaling for the time-diff model output
+#   mode="none"      : model already outputs physical Δt
+#   mode="standard"  : Δt_phys = Δt_scaled * std + mean
+#   mode="log_base"  : Δt_phys = base ** (Δt_scaled * std + mean)
+TIME_DIFF_SCALER = dict(
+    mode="none",
+    mean=0.0,
+    std=1.0,
+    base=10.0,
+)
+
+DT_EPS = 1e-20
 
 # ----------------------------
 # Output model
@@ -164,6 +186,20 @@ def decode_time_from_scaled(time_scaled: np.ndarray, m: float, s: float, base: f
     return np.asarray(base ** (time_scaled * s + m), dtype=np.float64)
 
 
+def decode_dt_from_scaled(dt_scaled: np.ndarray) -> np.ndarray:
+    """Decode the time-diff model output to physical Δt."""
+    dt_scaled = np.asarray(dt_scaled, dtype=np.float64)
+    mode = TIME_DIFF_SCALER.get("mode", "none")
+    if mode == "none":
+        return dt_scaled
+    if mode == "standard":
+        return dt_scaled * float(TIME_DIFF_SCALER["std"]) + float(TIME_DIFF_SCALER["mean"])
+    if mode == "log_base":
+        base = float(TIME_DIFF_SCALER.get("base", 10.0))
+        return base ** (dt_scaled * float(TIME_DIFF_SCALER["std"]) + float(TIME_DIFF_SCALER["mean"]))
+    raise ValueError(f"Unknown TIME_DIFF_SCALER['mode']={mode!r}")
+
+
 def encode_time_to_scaled(time_physical: np.ndarray, m: float, s: float, base: float = 1.5) -> np.ndarray:
     time_physical = np.asarray(time_physical, dtype=np.float64)
     if np.any(time_physical <= 0):
@@ -248,6 +284,8 @@ class TimeModelPredictor:
         x_dummy = jnp.zeros((1, IC_DIM), dtype=jnp.float32)
         y_dummy = jnp.zeros((1, N_EVAL, TIME_MODEL_CFG["output_dim"]), dtype=jnp.float32)
 
+        # Build a dummy TrainState for checkpoint restore.
+        # NOTE: signature follows train_grid_split_don_pos_diff.train
         dummy_state = train_time(
             self.model,
             x_dummy,
@@ -257,23 +295,43 @@ class TimeModelPredictor:
             num_epochs=0,
             batch_size=TIME_TRAIN_CFG["batch_size"],
             lr=TIME_TRAIN_CFG["lr"],
-            l2_reg=TIME_TRAIN_CFG["l2_reg"],
             seed=TIME_TRAIN_CFG["seed"],
             mono_idx=-1,
-            mono_weight=TIME_TRAIN_CFG["mono_weight"],
-            mono_mode="hinge",
+            #mono_weight=TIME_TRAIN_CFG["mono_weight"],
+            #lambda_logsum=TIME_TRAIN_CFG["lambda_logsum"],
+            #lambda_smooth=TIME_TRAIN_CFG["lambda_smooth"],
         )
+        
+        # Restore locally if present; otherwise download + extract the Zenodo zip.
+        self.state = restore_checkpoint_or_zenodo(
+            TIME_CKPT_DIR,
+            dummy_state,
+            ZENODO,
+        )
+        #self.state = checkpoints.restore_checkpoint(TIME_CKPT_DIR, target=dummy_state)
 
-        self.state = checkpoints.restore_checkpoint(TIME_CKPT_DIR, target=dummy_state)
-
-    def predict_scaled_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
-        pred = self.state.apply_fn(self.state.params, ic_batch)
+    # --- Δt prediction (model output)
+    def predict_dt_scaled_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
+        pred = self.state.apply_fn(self.state.params, ic_batch)  # (B, N_EVAL, 1)
         return np.asarray(pred[..., 0], dtype=np.float64)
 
+    def predict_dt_physical_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
+        dt_scaled = self.predict_dt_scaled_curve(ic_batch)
+        dt_phys = decode_dt_from_scaled(dt_scaled)
+        # enforce non-negativity and avoid flat segments
+        dt_phys = np.maximum(np.abs(dt_phys), DT_EPS)
+        return dt_phys
+
+    # --- Reconstructed time curve
     def predict_physical_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
-        scaled = self.predict_scaled_curve(ic_batch)
-        return decode_time_from_scaled(
-            scaled,
+        dt_phys = self.predict_dt_physical_curve(ic_batch)
+        return np.cumsum(dt_phys, axis=1)
+
+    def predict_scaled_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
+        """Optional: provide the same scaled-time diagnostic as in the original script."""
+        t_phys = self.predict_physical_curve(ic_batch)
+        return encode_time_to_scaled(
+            t_phys,
             TIME_SCALER["mean"],
             TIME_SCALER["std"],
             base=TIME_BASE,
@@ -307,7 +365,13 @@ class OutputModelPredictor:
             seed=OUTPUT_TRAIN_CFG["seed"],
         )
 
-        self.state = checkpoints.restore_checkpoint(OUTPUT_CKPT_DIR, target=dummy_state)
+        # Restore locally if present; otherwise download + extract the Zenodo zip.
+        self.state = restore_checkpoint_or_zenodo(
+            OUTPUT_CKPT_DIR,
+            dummy_state,
+            ZENODO,
+        )
+        #self.state = checkpoints.restore_checkpoint(OUTPUT_CKPT_DIR, target=dummy_state)
 
     def predict_scaled_curve(self, ic_batch: jnp.ndarray) -> np.ndarray:
         pred = self.state.apply_fn(self.state.params, ic_batch)
@@ -345,19 +409,20 @@ class CombinedPredictor:
         ic_batch = ensure_batch_ic(ic)
         batch_size = ic_batch.shape[0]
 
+        # Time model now predicts Δt(u); we reconstruct t(u).
+        dt_scaled_native = self.time_model.predict_dt_scaled_curve(ic_batch)
+        dt_physical_native = self.time_model.predict_dt_physical_curve(ic_batch)
+        time_physical_native = self.time_model.predict_physical_curve(ic_batch)
+        # Optional scaled-time diagnostic (kept for compatibility with the old script).
         time_scaled_native = self.time_model.predict_scaled_curve(ic_batch)
-        time_physical_native = decode_time_from_scaled(
-            time_scaled_native,
-            TIME_SCALER["mean"],
-            TIME_SCALER["std"],
-            base=TIME_BASE,
-        )
         output_native = self.output_model.predict_curve(ic_batch, self.output_mode)
 
         target_time_batch = normalize_target_time(target_time, batch_size)
         if target_time_batch is None:
             return {
                 "u_native": np.broadcast_to(U_NATIVE[None, :], (batch_size, N_EVAL)),
+                "dt_scaled_native": dt_scaled_native,
+                "dt_physical_native": dt_physical_native,
                 "time_scaled_native": time_scaled_native,
                 "time_physical_native": time_physical_native,
                 "output_native": output_native,
@@ -369,6 +434,7 @@ class CombinedPredictor:
                 "output_mode": self.output_mode,
             }
 
+        # For logging/debug only (not used for inversion in the Δt setting)
         requested_time_scaled = encode_time_to_scaled(
             target_time_batch,
             TIME_SCALER["mean"],
@@ -381,12 +447,13 @@ class CombinedPredictor:
         query_time_physical_list = []
 
         for i in range(batch_size):
-            scaled_time_to_u = make_interp_sorted(
-                x_src=time_scaled_native[i],
+            # Invert physical time curve: t(u) -> u(t)
+            phys_time_to_u = make_interp_sorted(
+                x_src=time_physical_native[i],
                 y_src=U_NATIVE,
                 kind="linear",
             )
-            u_query = np.asarray(scaled_time_to_u(requested_time_scaled[i]), dtype=np.float64)
+            u_query = np.asarray(phys_time_to_u(target_time_batch[i]), dtype=np.float64)
 
             output_on_u = make_interp_on_u(output_native[i], kind="linear")
             output_query = np.asarray(output_on_u(u_query), dtype=np.float64)
@@ -404,6 +471,8 @@ class CombinedPredictor:
 
         return {
             "u_native": np.broadcast_to(U_NATIVE[None, :], (batch_size, N_EVAL)),
+            "dt_scaled_native": dt_scaled_native,
+            "dt_physical_native": dt_physical_native,
             "time_scaled_native": time_scaled_native,
             "time_physical_native": time_physical_native,
             "output_native": output_native,
@@ -420,6 +489,8 @@ class CombinedPredictor:
         np.savez(
             path,
             u_native=result["u_native"],
+            dt_scaled_native=result.get("dt_scaled_native", None),
+            dt_physical_native=result.get("dt_physical_native", None),
             time_scaled_native=result["time_scaled_native"],
             time_physical_native=result["time_physical_native"],
             output_native=result["output_native"],
