@@ -11,3 +11,10 @@ checkpoint*/
 checkpoints_new/
 checkpoints_new/
 checkpoints_new/
+checkpoints/
+checkpoints_new/
+*.pkl
+*.h5
+*.pt
+*.pth
+*.ckpt
