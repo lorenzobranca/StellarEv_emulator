@@ -1,0 +1,13 @@
+#bayesflow model checkpoint files
+*.keras
+*.pyc
+*.lock
+*checkpoints_grid_split_don
+*.npy
+*.npz
+*.log
+checkpoint*/
+*.csv
+checkpoints_new/
+checkpoints_new/
+checkpoints_new/

@@ -1,0 +1,24 @@
+[project]
+name = "STELLAREV_EMULATOR"
+version = "0.1.0"
+description = "Emulator for YREC SSP code."
+requires-python = ">=3.11.0, <3.12"
+dependencies = [
+    "autocvd",
+    "bayesflow",
+    "gpustat",
+    "flax",
+    "jax[cuda]>=0.7.1",
+    "joblib==1.5.2",
+    "keras>=3.10",
+    "matplotlib",
+    "numpy",
+    "optuna",
+    "plotly",
+    "scipy>=1.12.0",
+    "scikit-learn",
+    "tqdm==4.67.1",
+]
+
+[tool.uv.sources]
+bayesflow = { path = "/export/home/vgiusepp/bayesflow_enviroment/bayesflow", editable = true }
