@@ -1,173 +1,139 @@
 # StellarEv_emulator
 
-Emulator for stellar-evolution tracks built with DeepONet-style models.
+Fast emulator for a 7-dimensional stellar-evolution output vector as a function of **5 initial-condition (IC) parameters** and **time**.
 
-This repository contains two complementary neural surrogates:
+The emulator is built as a **Neural Operator / DeepONet-style model** evaluated on an internal fixed grid, plus a learned **time-mapping model**. In practice, you provide:
 
-- a **time model** that predicts the time coordinate on a native latent domain `u ∈ [0,1]`
-- an **output model** that predicts the stellar quantities on the same native domain
+- **IC**: a vector of length **5**
+- **t_phys**: one or more **physical times**
 
-The main user-facing script is:
+and you get back:
 
-- **`make_inference_log.py`** — inference script for the current log-time model family
-
-A second user-facing inference script is planned:
-
-- **`make_inference_diff.py`** — future alternative expected to be less accurate at short times but more accurate at long times
+- **y(t)**: a vector of length **7** (or a batch of them), in physical units (after de-scaling).
 
 ---
 
-## Repository structure
+## Which inference script should I use?
 
-### User inference
+This repository provides **two user-facing inference scripts**, optimized for different time regimes:
 
-- **`make_inference_log.py`**  
-  Main entry point for users. Loads the trained time and output checkpoints, reconstructs the native curves, and provides:
-  - predictions on the native domain `u`
-  - predictions in physical time
-  - optional queried outputs at user-requested times
-  - plotting utilities for `time(u)`, `output(u)`, and `output(time)`
+- **`make_inferences_log.py`** → **best at early times** (small `t_phys`)
+  - Uses a log-time treatment to better resolve early-time dynamics.
 
-### Training scripts
+- **`make_inferences_diff.py`** → **best at late times** (large `t_phys`)
+  - Uses a time model that stays accurate when the system evolves slowly and late-time precision matters.
 
-- **`main_log15_time.py`**  
-  Trains and evaluates the **time model**.
+A simple rule of thumb:
+- If your science depends on **early evolution** (small times / rapid transients), start with `make_inferences_log.py`.
+- If your science depends on **late evolution** (large times / slow drift), start with `make_inferences_diff.py`.
 
-- **`main_grid_split_don.py`**  
-  Trains and evaluates the **output model**.
-
-- **`main_log15_time_diff.py`**, **`main_time_diff.py`**, **`main_log15_timeconcatenated.py`**  
-  Experimental / alternative model variants.
-
-### Plotting and analysis
-
-- **`plot_combined.py`**, **`plot_combined_diff.py`**  
-  Combine independently predicted time and output curves for visualization.
-
-- **`plot_interpolation.py`**  
-  Checks the interpolation used during preprocessing.
-
-### Data preparation
-
-- **`data_maker.py`** / **`data_maker.ipynb`**  
-  Dataset generation and preprocessing.
-
-### Core modules
-
-- **`arch_grid_split_don.py`**  
-  Neural architecture definition.
-
-- **`train_grid_split_don.py`**  
-  Training routine for the output model.
-
-- **`train_grid_split_don_pos.py`**  
-  Training routine for the time model.
-
-- **`train_grid_split_don_pos_diff.py`**  
-  Training routine for the diff-time variant.
-
-- **`utils.py`**  
-  Dataset utilities and helper functions.
+You can also run both and stitch results if you want a single curve spanning the full time range.
 
 ---
 
-## Conceptual workflow
+## Model I/O
 
-The emulator works in two stages.
+### Inputs
+- `IC`: shape `(5,)` or `(B, 5)` for a batch
+- `t_phys`: scalar or array of shape `(T,)` (physical query times)
 
-1. The **time model** predicts a curve on the native domain `u ∈ [0,1]`.
-2. The **output model** predicts the stellar quantities on that same native domain.
-3. The inference script combines both predictions to obtain curves in physical time.
-
-So the native prediction domain is **not physical time directly**. Instead, the models first predict on the internal domain `u`, and physical-time curves are obtained afterward.
+### Outputs (7 channels)
+The emulator returns **7 predicted quantities** per time. (Channel names depend on your configuration; check the plotting labels / `titles` list in the scripts for the exact mapping.)
 
 ---
 
-## Quick start
+## Quickstart
 
-### 1. Install dependencies
-
-The project is configured with a `pyproject.toml` file and requires Python `>=3.11,<3.12`.
-
-Typical dependencies include:
-
-- `jax[cuda]`
-- `flax`
-- `keras`
-- `numpy`
-- `scipy`
-- `matplotlib`
-- `optuna`
-
-Install with your preferred environment manager.
-
-### 2. Prepare checkpoints
-
-Make sure the trained checkpoints exist in the expected folders:
-
-- `checkpoints_new/deeponet_params_new_log15_time/`
-- `checkpoints_new/deeponet_params_new_log15_output/`
-
-### 3. Run inference
-
-The main user script is:
+### 1) Create an environment
+You need Python + JAX + Flax (GPU optional but recommended):
 
 ```bash
-python make_inference_log.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install jax jaxlib flax optax numpy scipy matplotlib
 ```
 
-This script generates:
+> If you use CUDA, install the correct JAX build for your CUDA version (see JAX docs).
 
-- native prediction arrays (`.npz`)
-- plots in the inference output folder
+### 2) Run one of the inference scripts
 
----
+```bash
+python make_inferences_log.py
+# or
+python make_inferences_diff.py
+```
 
-## Using `make_inference_log.py`
-
-This script is intended for end users who want to:
-
-- provide one set of initial conditions
-- reconstruct the predicted time curve
-- reconstruct the predicted stellar-output curves
-- optionally evaluate outputs at specific requested times
-- save and plot the results
-
-At a high level, the script:
-
-1. loads the trained checkpoints
-2. rebuilds the two models with the saved architecture
-3. predicts the time and output curves on the native domain
-4. converts the time prediction back to physical time
-5. optionally interpolates to user-requested times
-6. saves results and figures
+Each script contains an example section where you set:
+- `ic_single = np.array([...], dtype=np.float32)`  (length 5)
+- `user_time = np.array([...], dtype=np.float64)`  (physical times)
 
 ---
 
-## Outputs
+## Using the emulator from Python
 
-Depending on the selected options, the inference scripts produce plots such as:
+Both scripts expose a `CombinedPredictor` class. Example:
 
-- `time_vs_u.png`
-- `outputs_vs_u.png`
-- `outputs_vs_time.png`
-- query/interpolation result plots
+```python
+import numpy as np
+from make_inferences_log import CombinedPredictor  # early-time
+# from make_inferences_diff import CombinedPredictor  # late-time
 
-and NumPy archives such as:
+pred = CombinedPredictor(output_mode="physical")
 
-- `native_curves.npz`
-- `queried_outputs.npz`
+ic = np.array([1.0, 0.1, 1.5, 2.1, 0.3], dtype=np.float32)  # (5,)
+tq = np.array([1e-4, 1e-2, 1e0], dtype=np.float64)
+
+y = pred.predict(ic, target_time=tq)  # returns 7 outputs per query time
+```
 
 ---
 
-## Notes
+## Model checkpoints (too large for GitHub)
 
-- The current user-focused inference workflow is based on **`make_inference_log.py`**.
-- A future **`make_inference_diff.py`** will provide an alternative long-time inference mode.
-- The time and output models should be used together only when they come from compatible training/preprocessing pipelines.
+The trained checkpoint folders are **not stored in this repository** because they exceed GitHub’s 100 MB file limit.
+
+Instead:
+- They are stored on **Zenodo**.
+- The inference scripts include a loader that:
+  1) tries to load from a **local path** (fast, offline),
+  2) otherwise **downloads** the corresponding `.zip` from Zenodo,
+  3) extracts it into the expected checkpoint folder structure,
+  4) restores the Flax/JAX checkpoint.
+
+Zenodo record:
+```
+https://zenodo.org/records/19736519
+```
+
+### Expected local layout
+```
+checkpoints_new/
+  deeponet_params_new_log15_output/
+    checkpoint_0/...
+  deeponet_params_new_log15_time/
+    checkpoint_0/...
+  deeponet_params_new_log15_time_diff/
+    checkpoint_0/...
+```
+
+- `make_inferences_log.py` uses **output** + **time** (`..._time`)
+- `make_inferences_diff.py` uses **output** + **time_diff** (`..._time_diff`)
+
+If you already have the checkpoints locally, place them under `checkpoints_new/` and the scripts will not download anything.
+
+---
+
+## Notes & troubleshooting
+
+- **GPU selection**:
+  ```bash
+  export CUDA_VISIBLE_DEVICES=0
+  ```
+- **First run can be slow** if it has to download and extract checkpoints.
+- If Zenodo filenames change, update the configuration used by `params_loader.py`.
 
 ---
 
 ## License
-
-This repository is released under the **GPL-3.0** license.
+Add your chosen license here (e.g., MIT / BSD-3 / GPL-3).
