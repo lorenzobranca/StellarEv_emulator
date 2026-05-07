@@ -1,11 +1,12 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 from typing import Optional, Union, Dict, Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import warnings
 import matplotlib.pyplot as plt
 from flax.training import checkpoints
 from scipy.interpolate import interp1d
@@ -24,7 +25,7 @@ ZENODO = ZenodoSource(
 # USER CONFIG
 # ============================================================
 
-SAVE_DIR = "./inference_results_diff/"
+SAVE_DIR = "./plots/inference_results_diff/"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # NOTE: Do NOT restore checkpoints at module import time.
@@ -207,26 +208,62 @@ def encode_time_to_scaled(time_physical: np.ndarray, m: float, s: float, base: f
     return (np.log(time_physical) / np.log(base) - m) / s
 
 
-def normalize_target_time(target_time: Optional[Union[np.ndarray, list]], batch_size: int):
+def normalize_target_time(
+    target_time: Optional[Union[np.ndarray, list, float, int]],
+    batch_size: int,
+) -> Optional[np.ndarray]:
+    """Normalize user-provided physical query times.
+
+    We support both single-time and multi-time queries.
+
+    Returns an array of shape (batch_size, Q), where Q is the number of
+    query times per sample.
+
+    Supported inputs:
+      - scalar: broadcast to all samples, Q=1
+      - 1D array/list:
+          * length 1 -> broadcast to all samples, Q=1
+          * length batch_size -> one time per sample, Q=1
+          * length Q with batch_size=1 -> Q times for the single sample
+      - 2D array:
+          * shape (batch_size, 1) -> Q=1
+          * shape (batch_size, Q) -> Q times per sample
+    """
     if target_time is None:
         return None
 
-    target_time = np.asarray(target_time, dtype=np.float64)
+    arr = np.asarray(target_time, dtype=np.float64)
 
-    if target_time.ndim == 1:
-        return np.broadcast_to(target_time[None, :], (batch_size, target_time.shape[0]))
+    # Scalar -> (B, 1)
+    if arr.ndim == 0:
+        return np.full((batch_size, 1), float(arr), dtype=np.float64)
 
-    if target_time.ndim == 2:
-        if target_time.shape[0] != batch_size:
+    # 1D
+    if arr.ndim == 1:
+        # Per-sample single times -> (B, 1)
+        if arr.shape[0] == batch_size:
+            return arr.reshape(batch_size, 1)
+        # Single value -> broadcast -> (B, 1)
+        if arr.shape[0] == 1:
+            return np.full((batch_size, 1), float(arr[0]), dtype=np.float64)
+        # Multi-query for a single sample -> (1, Q)
+        if batch_size == 1:
+            return arr.reshape(1, -1)
+        raise ValueError(
+            f"target_time must be a scalar, length 1, length batch_size={batch_size}, "
+            f"or a multi-time vector only if batch_size=1. Got shape {arr.shape}."
+        )
+
+    # 2D -> accept (B, Q)
+    if arr.ndim == 2:
+        if arr.shape[0] != batch_size:
             raise ValueError(
-                f"2D target_time must have shape (batch, n_times); got {target_time.shape}, batch={batch_size}"
+                f"target_time first dimension must equal batch_size={batch_size}. Got shape {arr.shape}."
             )
-        return target_time
+        return arr
 
-    raise ValueError("target_time must be None, 1D, or 2D")
-
-
-def make_interp_sorted(x_src, y_src, kind="linear"):
+    raise ValueError(f"Unsupported target_time shape: {arr.shape}")
+def make_interp_sorted(x_src, y_src, kind="linear", extrapolate: bool = False):
     x_src = np.asarray(x_src, dtype=np.float64)
     y_src = np.asarray(y_src, dtype=np.float64)
 
@@ -241,13 +278,15 @@ def make_interp_sorted(x_src, y_src, kind="linear"):
     if len(x_src) < 2:
         raise ValueError("Need at least two unique source points for interpolation")
 
+    fill_value =  (y_src[0], y_src[-1])
+
     return interp1d(
         x_src,
         y_src,
         axis=0,
         kind=kind,
         bounds_error=False,
-        fill_value=(y_src[0], y_src[-1]),
+        fill_value=fill_value,
         assume_sorted=True,
     )
 
@@ -255,13 +294,15 @@ def make_interp_sorted(x_src, y_src, kind="linear"):
 def make_interp_on_u(y_src, kind="linear"):
     y_src = np.asarray(y_src, dtype=np.float64)
 
+    fill_value =  (y_src[0], y_src[-1])
+
     return interp1d(
         U_NATIVE,
         y_src,
         axis=0,
         kind=kind,
         bounds_error=False,
-        fill_value=(y_src[0], y_src[-1]),
+        fill_value=fill_value,
         assume_sorted=True,
     )
 
@@ -452,8 +493,26 @@ class CombinedPredictor:
                 x_src=time_physical_native[i],
                 y_src=U_NATIVE,
                 kind="linear",
+                extrapolate=True,
             )
-            u_query = np.asarray(phys_time_to_u(target_time_batch[i]), dtype=np.float64)
+            u_query_raw = np.asarray(phys_time_to_u(target_time_batch[i]), dtype=np.float64)
+            u_query_raw = np.atleast_1d(u_query_raw)
+
+            # Warn if the requested physical time is outside the model range.
+            if np.any((u_query_raw < 0.0) | (u_query_raw > 1.0)):
+                t_min = float(time_physical_native[i][0])
+                t_max = float(time_physical_native[i][-1])
+                t_req_min = float(np.min(target_time_batch[i]))
+                t_req_max = float(np.max(target_time_batch[i]))
+                warnings.warn(
+                    "The requested time exceeds the maximum model time; results would be non-physical. "
+                    f"Model range: [{t_min:.6g}, {t_max:.6g}], requested: [{t_req_min:.6g}, {t_req_max:.6g}].",
+                    category=UserWarning,
+                )
+
+            # Clamp to valid pseudo-time domain for evaluation on u∈[0,1].
+            u_query = np.clip(u_query_raw, 0.0, 1.0)
+            u_query = np.atleast_1d(u_query)
 
             output_on_u = make_interp_on_u(output_native[i], kind="linear")
             output_query = np.asarray(output_on_u(u_query), dtype=np.float64)
