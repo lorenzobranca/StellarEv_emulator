@@ -134,6 +134,3 @@ If you already have the checkpoints locally, place them under `checkpoints_new/`
 - If Zenodo filenames change, update the configuration used by `params_loader.py`.
 
 ---
-
-## License
-Add your chosen license here (e.g., MIT / BSD-3 / GPL-3).
