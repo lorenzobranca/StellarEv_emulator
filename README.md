@@ -73,10 +73,6 @@ non-physical results.
   IC-dependent; the inference scripts warn when a requested time falls outside
   the model's predicted range for a given IC.
 
-> These bounds are read directly from the training set
-> (`preprocessing_new_log15/initial_conditions.npy` and `time.npy`), not from
-> the paper table.
-
 ### Outputs (7 channels)
 
 The emulator returns **7 predicted quantities** per query time, **in this exact order**:
