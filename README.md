@@ -52,6 +52,9 @@ The 5 initial-condition parameters, **in this exact order**, are:
 angular-momentum-evolution scaling exponents. Example (from the scripts):
 `IC = [1.0, 0.1, 1.5, 2.1, 0.3]`.
 
+> **Tip:** To reproduce a Skumanich spin-down index, set `PMMA = 2`,
+> `PMMB = 1`, and `PMMM = 0.22`.
+
 #### ⚠️ Training-set boundaries (valid input domain)
 
 The emulator was trained on **4320 simulations** sampled on a **discrete grid**.
