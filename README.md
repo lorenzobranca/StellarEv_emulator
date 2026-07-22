@@ -34,11 +34,40 @@ You can also run both and stitch results if you want a single curve spanning the
 ## Model I/O
 
 ### Inputs
-- `IC`: shape `(5,)` or `(B, 5)` for a batch
-- `t_phys`: scalar or array of shape `(T,)` (physical query times)
+
+- `IC`: shape `(5,)` or `(B, 5)` for a batch, `float32`
+- `t_phys`: scalar or array of shape `(T,)` (physical query times, in **Gyr**)
+
+The 5 initial-condition parameters, **in this exact order**, are:
+
+| idx | name    | meaning                                                                 | units         |
+|-----|---------|-------------------------------------------------------------------------|---------------|
+| 0   | `Mstar` | stellar mass                                                            | M<sub>☉</sub> |
+| 1   | `FeH`   | metallicity `[Fe/H]`                                                    | dex           |
+| 2   | `PMMA`  | rotational-evolution parameter — mass loss vs. angular velocity: `dM/dt ∝ ω^PMMA` | dimensionless |
+| 3   | `PMMB`  | rotational-evolution parameter — magnetic field vs. angular velocity: `B ∝ ω^PMMB` | dimensionless |
+| 4   | `PMMM`  | rotational-evolution parameter — angular-momentum coupling `m`: `dJ/dt ∝ B^(4m) · (dM/dt)^(1−2m)` | dimensionless |
+
+`Mstar`/`FeH` set the stellar model; `PMMA`/`PMMB`/`PMMM` are the Rotevol
+angular-momentum-evolution scaling exponents. Example (from the scripts):
+`IC = [1.0, 0.1, 1.5, 2.1, 0.3]`.
 
 ### Outputs (7 channels)
-The emulator returns **7 predicted quantities** per time. (Channel names depend on your configuration; check the plotting labels / `titles` list in the scripts for the exact mapping.)
+
+The emulator returns **7 predicted quantities** per query time, **in this exact order**:
+
+| idx | name       | meaning                        | units                    |
+|-----|------------|--------------------------------|--------------------------|
+| 0   | `logTeff`  | effective surface temperature  | log₁₀(K)                 |
+| 1   | `Prot`     | rotation period                | days                     |
+| 2   | `Bcoronal` | coronal magnetic field strength| B / B<sub>☉</sub> (dimensionless) |
+| 3   | `Patm`     | photospheric pressure          | cgs                      |
+| 4   | `tau_cz`   | convective turnover time       | s                        |
+| 5   | `dMdt`     | mass-loss rate                 | M<sub>☉</sub>/yr         |
+| 6   | `luminosity` | stellar luminosity           | L<sub>☉</sub>            |
+
+(These match the `output_cols` list in `data_maker.py` and the `OUTPUT_NAMES`
+labels in the inference scripts.)
 
 ---
 

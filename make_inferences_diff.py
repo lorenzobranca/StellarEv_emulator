@@ -437,6 +437,30 @@ class OutputModelPredictor:
 # ============================================================
 
 class CombinedPredictor:
+    """Emulator front-end: (IC, physical time) -> 7 stellar outputs.
+
+    Inputs
+    ------
+    ic : array of shape (5,) or (B, 5), float32. Initial conditions, in order:
+        0  Mstar  stellar mass                                          [M_sun]
+        1  FeH    metallicity [Fe/H]                                    [dex]
+        2  PMMA   mass loss vs angular velocity:  dM/dt ~ omega^PMMA     [-]
+        3  PMMB   magnetic field vs angular velocity:  B ~ omega^PMMB    [-]
+        4  PMMM   ang.-momentum coupling m: dJ/dt ~ B^(4m) (dM/dt)^(1-2m) [-]
+    target_time : optional array of physical query times, in Gyr.
+
+    Outputs (7 channels, in order), returned per query/native time point:
+        0  logTeff     effective surface temperature   [log10(K)]
+        1  Prot        rotation period                 [days]
+        2  Bcoronal    coronal magnetic field          [B / B_sun]
+        3  Patm        photospheric pressure           [cgs]
+        4  tau_cz      convective turnover time         [s]
+        5  dMdt        mass-loss rate                  [M_sun/yr]
+        6  luminosity  stellar luminosity              [L_sun]
+
+    See the module/README "Model I/O" section for the full return-dict schema.
+    """
+
     def __init__(self, output_mode: str = "scaled"):
         self.time_model = TimeModelPredictor()
         self.output_model = OutputModelPredictor()
