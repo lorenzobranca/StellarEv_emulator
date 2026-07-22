@@ -52,6 +52,31 @@ The 5 initial-condition parameters, **in this exact order**, are:
 angular-momentum-evolution scaling exponents. Example (from the scripts):
 `IC = [1.0, 0.1, 1.5, 2.1, 0.3]`.
 
+#### ⚠️ Training-set boundaries (valid input domain)
+
+The emulator was trained on **4320 simulations** sampled on a **discrete grid**.
+Predictions are only reliable **inside** the ranges below — the model
+**interpolates** within the sampled grid, and **extrapolating outside these
+ranges (or far from the sampled grid points) is not safe** and can give
+non-physical results.
+
+| idx | param   | min | max | sampled grid values                    |
+|-----|---------|-----|-----|----------------------------------------|
+| 0   | `Mstar` | 0.2 | 1.4 | 0.2 → 1.3 in steps of 0.05, then 1.4 (M<sub>☉</sub>) |
+| 1   | `FeH`   | 0.0 | 0.2 | 0.0, 0.1, 0.2 (dex)                    |
+| 2   | `PMMA`  | 1.0 | 2.0 | 1.0, 2.0                               |
+| 3   | `PMMB`  | 0.5 | 5.0 | 0.5, 1.0, 2.0, 3.0, 4.0, 5.0          |
+| 4   | `PMMM`  | 0.1 | 0.5 | 0.1, 0.2, 0.3, 0.4, 0.5               |
+
+- **Physical time `t_phys`**: the training tracks span roughly
+  **1.1×10⁻⁶ Gyr to 13.8 Gyr**. The exact valid time window is
+  IC-dependent; the inference scripts warn when a requested time falls outside
+  the model's predicted range for a given IC.
+
+> These bounds are read directly from the training set
+> (`preprocessing_new_log15/initial_conditions.npy` and `time.npy`), not from
+> the paper table.
+
 ### Outputs (7 channels)
 
 The emulator returns **7 predicted quantities** per query time, **in this exact order**:
