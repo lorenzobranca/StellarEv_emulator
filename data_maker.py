@@ -6,14 +6,9 @@ import pandas as pd
 import scipy 
 from scipy.stats import gaussian_kde
 
-<<<<<<< HEAD
 path_to_data = '/export/scratch/lbranca/Amanda_emulator/parsed_rotevol/master_Prot0.dat'
 directory_output_name = './preprocessing_new_log15/'
 directory_plot_examples = './plots_examples/new_log15/'
-=======
-path_to_data = './../master_Prot0.dat'
-directory_output_name = './preprocessing_output/'
->>>>>>> 0ac3cf7 (code upload)
 columns_to_drop = [' Xcen',
                 ' Prot (fast)',
                 ' Bcoronal(fast)', ' dMdt(fast)',
@@ -25,15 +20,10 @@ output_cols = ['logTeff', 'Prot_mid', 'Bcoronal_mid', 'Patm', 'tau_cz', 'dMdt_mi
 # index_logTeff = output_cols.index('logTeff')
 max_time = 13.8 # Gyr
 val_percentage = 0.0
-<<<<<<< HEAD
 split = False # whether to apply log10 only for age<1 Gyr or for all ages
 plot_examples = True # whether to plot examples of the original and new age distributions for a few simulations
 SEED = 12
 # np.random.seed(SEED)
-=======
-
-
->>>>>>> 0ac3cf7 (code upload)
 
 #### utilities functions
 def build_grouped_df(keys):
@@ -61,7 +51,6 @@ def kde_func(x, max_length_new_time):
     new_t = np.interp(u, cdf_0, x)
     return new_t
 
-<<<<<<< HEAD
 def split_log10(arr, split=False):
     arr = np.copy(arr)
     if split:
@@ -80,8 +69,6 @@ def log_15(arr, ):
     return np.emath.logn(1.5, arr)
 
 
-=======
->>>>>>> 0ac3cf7 (code upload)
 
 
 if __name__ == "__main__":
@@ -130,20 +117,13 @@ if __name__ == "__main__":
 
 
     #apply the log10 
-<<<<<<< HEAD
     # df_train['Age'] = df_train['Age'].apply(lambda arr: split_log10(arr, split=split))
     df_train['Age'] = df_train['Age'].apply(lambda arr: log_15(arr))
-=======
-    df_train['Age'] = df_train['Age'].apply(lambda arr: np.log10(arr))
->>>>>>> 0ac3cf7 (code upload)
     df_train['output'] = df_train['output'].apply(lambda arr: log10_func(arr))
 
     #apply the kde transformation to the Age column and create the new time column from the quantiles
     max_length_new_time = max(len(arr) for arr in df_train['Age'])
-<<<<<<< HEAD
     # max_length_new_time = 499
-=======
->>>>>>> 0ac3cf7 (code upload)
     print('max_length_new_time', max_length_new_time)
     df_train['New_Age'] = df_train['Age'].apply(lambda arr: kde_func(arr, max_length_new_time))
 
@@ -153,7 +133,6 @@ if __name__ == "__main__":
         array_new_age[i, :len(arr)] = arr
 
     #interpolate the output values to the new age array using cubic interpolation
-<<<<<<< HEAD
     # new_output = np.zeros((len(df_train), max_length_new_time, len(output_cols)), dtype=np.float64)
     # for i, arr in enumerate(df_train['output']):
     #     for j in range(len(output_cols)):
@@ -171,14 +150,6 @@ if __name__ == "__main__":
     # Stack the results back into a 3D numpy array for saving/plotting downstream
     new_output = np.stack(df_train['New_output'].values)
 
-=======
-    new_output = np.zeros((len(df_train), max_length_new_time, len(output_cols)), dtype=np.float64)
-    for i, arr in enumerate(df_train['output']):
-        for j in range(len(output_cols)):
-            interpolator_cubic = scipy.interpolate.CubicSpline(df_train['Age'][i], arr[:, j], extrapolate=False)
-            new_output[i, :, j] = interpolator_cubic(df_train['New_Age'][i])
-    
->>>>>>> 0ac3cf7 (code upload)
     print('time_test shape:', array_new_age.shape)
     print('output_test shape:', new_output.shape)
     print('initial_conditions shape:', df_train[initial_conditions].values.shape)
@@ -187,7 +158,6 @@ if __name__ == "__main__":
     np.save(os.path.join(directory_output_name, 'time.npy'), array_new_age)
     np.save(os.path.join(directory_output_name, 'output.npy'), new_output)
     np.save(os.path.join(directory_output_name, 'initial_conditions.npy'), df_train[initial_conditions].values)
-<<<<<<< HEAD
     df_train.to_csv(os.path.join(directory_output_name, 'df_train.csv'), index=False)
 
     if plot_examples:
@@ -232,5 +202,3 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(os.path.join(directory_plot_examples, 'output_interpolation_examples.png'))
         plt.show()
-=======
->>>>>>> 0ac3cf7 (code upload)
