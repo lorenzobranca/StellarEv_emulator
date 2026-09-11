@@ -45,7 +45,7 @@ TIME_CKPT_DIR = os.path.abspath("checkpoints_new/deeponet_params_new_log15_time_
 
 TIME_MODEL_CFG = dict(
     # Optuna-v2 best time-diff model (main_log15_time_diff_optunav2.py), shipped in the
-    # Zenodo bundle since version v2 (2026-09-11). The earlier v1 bundle held a smaller
+    # Zenodo bundle since v2 (record 22708204, 2026-09-11). The earlier v1 bundle held a smaller
     # model (latent_dim=138, num_layers=7, relu, use_curve_bias=True).
     latent_dim=816,
     num_layers=8,

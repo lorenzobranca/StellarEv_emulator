@@ -158,7 +158,7 @@ Zenodo record (concept DOI, always resolves to the latest version):
 ```
 https://zenodo.org/records/19736518
 ```
-Versions: **v2** (2026-09-11) ships the Optuna-best time-diff model (latent 816, 8 layers, silu),
+Versions: **v2** (record 22708204, 2026-09-11) ships the Optuna-best time-diff model (latent 816, 8 layers, silu),
 which is what `make_inferences_diff.py` now expects. **v1** (record 19736519, 2026-04-24) had a
 smaller time-diff model (latent 138); the output and time (log) models are identical in both.
 
