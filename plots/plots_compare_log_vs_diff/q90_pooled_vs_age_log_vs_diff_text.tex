@@ -1,0 +1,22 @@
+% Body-text paragraph commenting Fig.~\ref{fig:q90_pooled} (q90_pooled_vs_age_log_vs_diff.pdf).
+% Numbers from plot_q90_pooled_log_vs_diff.py, run 2026-09-11 on the seed-0 test split (432 tracks).
+
+Figure~\ref{fig:q90_pooled} compares the accuracy of the two emulator variants as a function
+of stellar age. Because the output network is common to both, the difference between the two
+curves isolates the effect of the age mapping alone. The variant that predicts $\log$ age
+directly is the more accurate one throughout the pre-main-sequence: its pooled $q_{90}$ error
+stays between 0.02 and 0.07\,dex from $10^{-6}$ to 1\,Gyr, whereas the $\Delta t$ variant
+degrades steadily with age up to $\sim$1.3\,dex between 1 and 30\,Myr, where the age
+increments it has to predict span several orders of magnitude and are dominated in the loss by
+the much larger late-time increments. The two curves converge just below 1\,Gyr and are
+indistinguishable between 1 and 5\,Gyr, with $q_{90}\simeq0.04$--$0.08$\,dex. On the main
+sequence beyond 5\,Gyr the ordering reverses: the $\Delta t$ variant, which reconstructs the
+age by cumulative summation and is trained on linear age, keeps $q_{90}$ between 0.05 and
+0.09\,dex, while the $\log$-age variant is a factor 2--3 worse and shows two isolated
+excursions to $\sim$0.45\,dex in the 9--10 and 11--12\,Gyr bins, caused by a handful of test
+stars whose predicted age axis is offset near the end of the main sequence. These bins contain
+comparatively few grid points, so a few tracks dominate the quantile. The crossover at
+$\simeq$1\,Gyr motivates the two-script design of the public code: the $\log$ variant should
+be used for pre-main-sequence and young-star applications, the $\Delta t$ variant for
+main-sequence ages, and the two can be stitched at 1\,Gyr for a single track spanning the full
+age range.
