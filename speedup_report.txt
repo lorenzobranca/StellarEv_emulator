@@ -4,7 +4,8 @@ Date: 2026-09-11
 Host: compgpu8 (AMD EPYC 7452 32-core CPU, NVIDIA A100-PCIE-40GB GPU)
 Software: Python 3.12.3, JAX 0.11.0, Flax 0.12.8
 Benchmark script: bench_emulator.py (repo root), usage `python bench_emulator.py [gpu|cpu] [log|diff]`
-Checkpoints: Zenodo record 19736519, checkpoints_new.zip (md5 41079a40ed7e61d3fe936312574ad2e8)
+Checkpoints: Zenodo concept record 19736518; v1 = record 19736519 (md5 41079a40ed7e61d3fe936312574ad2e8),
+             v2 (2026-09-11) ships the latent-816 time-diff model (md5 0b3cc69db7ec35f23476862efcb4157f)
 
 
 1. Reference runtimes (from collaborator)
@@ -45,9 +46,10 @@ Log variant (time model predicts log-age directly):
   NN forward only (both models), 1 star, GPU      0.71 ms
   NN forward only (both models), 1 star, CPU      6.6 ms
 
-Diff variant (time model predicts delta-age, cumulative sum). Measured with the public
-Zenodo time-diff checkpoint (latent 138, 7 layers, relu); a larger local retrain (latent 816,
-8 layers, silu) gave the same timings within noise, so the time model is not the bottleneck:
+Diff variant (time model predicts delta-age, cumulative sum). Measured with the v1 Zenodo
+time-diff checkpoint (latent 138, 7 layers, relu); the v2 model (latent 816, 8 layers, silu,
+now the default) gave 3.4 ms single-star and 0.19 ms/star batched, i.e. the same within noise,
+so the time model is not the bottleneck:
 
   single star, default predictor, GPU             4.4 ms
   single star + age query at 9.5 Gyr, GPU         4.7 ms

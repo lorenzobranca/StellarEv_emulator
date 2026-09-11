@@ -154,10 +154,18 @@ Instead:
   3) extracts it into the expected checkpoint folder structure,
   4) restores the Flax/JAX checkpoint.
 
-Zenodo record:
+Zenodo record (concept DOI, always resolves to the latest version):
 ```
-https://zenodo.org/records/19736519
+https://zenodo.org/records/19736518
 ```
+Versions: **v2** (2026-09-11) ships the Optuna-best time-diff model (latent 816, 8 layers, silu),
+which is what `make_inferences_diff.py` now expects. **v1** (record 19736519, 2026-04-24) had a
+smaller time-diff model (latent 138); the output and time (log) models are identical in both.
+
+> If you downloaded the checkpoints **before 2026-09-11**, delete
+> `checkpoints_new/deeponet_params_new_log15_time_diff/` and re-run: the loader will fetch the
+> v2 bundle. Loading the old folder with the new code fails with a `ScopeParamShapeError` on
+> `grid_basis` (expected `(3999, 816)`, found `(3999, 138)`).
 
 ### Expected local layout
 ```
@@ -192,8 +200,8 @@ model loading (~6 s) and first-call compilation (~1 s per new batch shape).
 | batch of 1000 stars              |       0.16 ms |       0.33 ms |
 | network forward only (2 models)  |       0.71 ms |        6.6 ms |
 
-The diff variant (`make_inferences_diff.py`, public Zenodo checkpoint) times within noise of the
-log variant: 4.4 ms per single star and 0.19 ms per star in a batch of 1000 on the GPU.
+The diff variant (`make_inferences_diff.py`) times within noise of the log variant: 3.4-4.4 ms per
+single star and 0.19 ms per star in a batch of 1000 on the GPU, for both the v1 and v2 time-diff models.
 
 **Speed-up over the physical code.** Reference timings for a 1 M☉ star evolved to 9.5 Gyr
 (stopping at central X_H < 10⁻³): non-rotating YREC track 100.2 s + rotevol 0.15 s = **100.4 s**;

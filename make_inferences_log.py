@@ -20,7 +20,7 @@ from train_grid_split_don import train as train_output
 from params_loader import ZenodoSource, restore_checkpoint_or_zenodo
 
 ZENODO = ZenodoSource(
-    record_url="https://zenodo.org/records/19736519",
+    record_url="https://zenodo.org/records/19736518",   # concept record: always resolves to the latest version
     asset_name="checkpoints_new.zip",
 )
 

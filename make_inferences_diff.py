@@ -19,7 +19,7 @@ from train_grid_split_don import train as train_output
 from params_loader import ZenodoSource, restore_checkpoint_or_zenodo
 
 ZENODO = ZenodoSource(
-    record_url="https://zenodo.org/records/19736519",
+    record_url="https://zenodo.org/records/19736518",   # concept record: always resolves to the latest version
     asset_name="checkpoints_new.zip",
 )
 
@@ -44,21 +44,21 @@ OUTPUT_MODE = "scaled"   # "scaled" or "physical"
 TIME_CKPT_DIR = os.path.abspath("checkpoints_new/deeponet_params_new_log15_time_diff/")
 
 TIME_MODEL_CFG = dict(
-    
-    # Defaults below follow main_log15_time_diff.py
-    latent_dim=138,
-    num_layers=7,
+    # Optuna-v2 best time-diff model (main_log15_time_diff_optunav2.py), shipped in the
+    # Zenodo bundle since version v2 (2026-09-11). The earlier v1 bundle held a smaller
+    # model (latent_dim=138, num_layers=7, relu, use_curve_bias=True).
+    latent_dim=816,
+    num_layers=8,
     output_dim=1,
-    activation_name="relu",
-    use_curve_bias=True,
+    activation_name="silu",
+    use_curve_bias=False,
 )
 
 TIME_TRAIN_CFG = dict(
     # Only used to build a dummy TrainState for checkpoint restore.
-    lr=0.0006587227663328755,
+    lr=0.0003046881277756819,
     batch_size=256,
     seed=0,
-    
 )
 
 TIME_SCALER = dict(
