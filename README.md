@@ -27,6 +27,10 @@ A simple rule of thumb:
 - If your science depends on **early evolution** (small times / rapid transients), start with `make_inferences_log.py`.
 - If your science depends on **late evolution** (large times / slow drift), start with `make_inferences_diff.py`.
 
+On the test set the two variants cross over at **~1 Gyr**: below it the log variant is more
+accurate (by up to a factor ~40 in the 1-30 Myr range), between 1 and 5 Gyr they are equivalent,
+above 5 Gyr the diff variant is more accurate by a factor 2-3. See *Accuracy* below.
+
 You can also run both and stitch results if you want a single curve spanning the full time range.
 
 ---
@@ -213,11 +217,61 @@ full YREC model with rotation **142.0 s** (single run, one CPU).
 | batch of 1000, per star |                    ~6 × 10⁵ |                   ~9 × 10⁵ |
 
 Round numbers: four orders of magnitude for single-star latency, five to six for batched
-throughput. Full measurements, ratios and caveats are in `speedup_report.txt`; reproduce with
+throughput. Reproduce with
 
 ```bash
 python bench_emulator.py gpu log    # or: cpu | diff
 ```
+
+---
+
+## Accuracy
+
+The two combined emulators (time model + output model) are validated against the held-out
+**test set** (10 % of the 4320 tracks, 432 stars, split seed 0). For every test star the emulator
+is run once, its predicted age axis is inverted, and the 7 outputs are evaluated at the **true age
+of every grid point**, so the errors below include both the time-model and the output-model error.
+All 7 channels are compared in log₁₀, i.e. errors are in **dex**.
+
+Grid points where the reference age is repeated (the padded ends of the preprocessed tracks,
+12.9 % of all test points) are excluded from the age-binned statistics: there the age→output
+mapping is degenerate and an "error at the true age" is not defined.
+
+### Scripts
+
+| script | what it does | output folder |
+|--------|--------------|---------------|
+| `compare_log.py`  | log variant vs. data: 10 example tracks, HR diagram, error histogram, q90 per age bin (+ per-point error dump `errors_log.npz`) | `plots/plots_combined_compare/` |
+| `compare_diff.py` | same for the diff variant, plus a t(u) time-map check | `plots/plots_compare_diff/` |
+| `plot_q90_log_vs_diff.py` | 7-panel figure, q90 vs. age, log vs. diff (reads the two `q90_per_age_bin_*.csv`) | `plots/plots_compare_log_vs_diff/` |
+| `plot_q90_pooled_log_vs_diff.py` | single-panel figure, q90 pooled over all channels vs. age, log axis below 1 Gyr and linear above (reads the two `errors_*.npz`) | `plots/plots_compare_log_vs_diff/` |
+| `error_stats.py` | shared helpers (log-binned histogram, padding mask, q90 per age bin, CSV/npz export) | – |
+
+`compare_*.py` need a GPU/CPU with the checkpoints; the two `plot_q90_*` scripts only read the
+tables/dumps they write and run in seconds. Run them in this order:
+
+```bash
+python compare_log.py
+python compare_diff.py
+python plot_q90_log_vs_diff.py
+python plot_q90_pooled_log_vs_diff.py
+```
+
+### Results
+
+90th percentile of |error| pooled over all channels, log variant (solid) vs. diff variant (dashed):
+
+![q90 pooled over channels vs age](plots/plots_compare_log_vs_diff/q90_pooled_vs_age_log_vs_diff.png)
+
+Per channel:
+
+![q90 per channel vs age](plots/plots_compare_log_vs_diff/q90_vs_age_log_vs_diff.png)
+
+A LaTeX caption for the pooled figure is in
+`plots/plots_compare_log_vs_diff/q90_pooled_vs_age_log_vs_diff_caption.tex`.
+
+Per-variant diagnostics (example tracks, HR diagram, error histogram):
+`plots/plots_combined_compare/` (log) and `plots/plots_compare_diff/` (diff).
 
 ---
 
