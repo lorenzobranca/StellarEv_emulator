@@ -1,7 +1,7 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-#from autocvd import autocvd
-#autocvd(num_gpus=1)
+from autocvd import autocvd
+if "CUDA_VISIBLE_DEVICES" not in os.environ:   # respect a manual override, pick a free GPU otherwise
+    autocvd(num_gpus=1)
 
 import jax
 import jax.numpy as jnp

@@ -24,10 +24,12 @@ Notes
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+from autocvd import autocvd
+if "CUDA_VISIBLE_DEVICES" not in os.environ:   # respect a manual override, pick a free GPU otherwise
+    autocvd(num_gpus=1)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.6"  # or 0.3 to be extra safe
-os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "cuda_malloc_async"
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "cuda_async"
 
 
 import argparse
