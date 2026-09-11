@@ -232,6 +232,11 @@ python bench_emulator.py gpu log    # or: cpu | diff
 - **First call per batch shape** takes ~1 s extra: the network forward pass is `jax.jit`-compiled
   once per distinct input batch size. Repeated calls with the same shape are fast (see *Performance*).
 - **First run can be slow** if it has to download and extract checkpoints.
+- **Re-running the preprocessing** (`data_maker.py`, only needed to rebuild the training set) expects
+  the raw AMANDA/rotevol table `master_Prot0.dat` one directory above the repo. Point it elsewhere with
+  ```bash
+  STELLAREV_DATA=/path/to/master_Prot0.dat python data_maker.py
+  ```
 - If Zenodo filenames change, update the configuration used by `params_loader.py`.
 
 ---

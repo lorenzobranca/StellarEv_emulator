@@ -6,7 +6,12 @@ import pandas as pd
 import scipy 
 from scipy.stats import gaussian_kde
 
-path_to_data = '/export/scratch/lbranca/Amanda_emulator/parsed_rotevol/master_Prot0.dat'
+# Raw AMANDA/rotevol table. Default: master_Prot0.dat one directory above this file;
+# override with the STELLAREV_DATA environment variable.
+path_to_data = os.environ.get(
+    'STELLAREV_DATA',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'master_Prot0.dat'),
+)
 directory_output_name = './preprocessing_new_log15/'
 directory_plot_examples = './plots_examples/new_log15/'
 columns_to_drop = [' Xcen',
