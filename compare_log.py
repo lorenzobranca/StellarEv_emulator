@@ -54,6 +54,9 @@ mpl.rcParams.update({
 
 from make_inferences_log import CombinedPredictor, OUTPUT_NAMES
 from utils import train_test_split_unaligned
+from error_stats import (AGE_BIN_EDGES_GYR, q90_per_age_bin, print_q90_table,
+                         save_q90_table_csv, plot_error_histogram, plot_q90_vs_age,
+                         strictly_increasing_mask, save_errors)
 
 
 # ----------------------------
@@ -281,6 +284,58 @@ def main():
         y_pred=y_pred,
     )
     print(f"[saved] {os.path.join(PLOTS_DIR, 'combined_vs_data_samples.npz')}")
+
+    # ----------------------------
+    # Error distribution over the full test set (pipeline evaluated at true ages)
+    # ----------------------------
+    print("Computing error distribution over the full test set...")
+    out_full = predictor.predict(
+        np.array(IC_test, dtype=np.float32), target_time=None
+    )
+    t_pred_full     = _as_np(out_full["time_physical_native"])  # (N_test, N_eval)
+    y_pred_native   = _as_np(out_full["output_native"])          # (N_test, N_eval, 7)
+
+    N_test_full = IC_test.shape[0]
+    N_eval_full = t_pred_full.shape[1]
+    u_grid_full = np.linspace(0.0, 1.0, N_eval_full, dtype=np.float64)
+    t_true_full = np.array(t_test_phys, dtype=np.float64)       # (N_test, N_eval) true physical times
+
+    y_pred_on_true = np.empty((N_test_full, N_eval_full, output_dim), dtype=np.float64)
+    for b in range(N_test_full):
+        t_mono = np.maximum.accumulate(t_pred_full[b])
+        tq = np.clip(t_true_full[b], float(t_mono[0]), float(t_mono[-1]))
+        u_star = np.interp(tq, t_mono, u_grid_full)
+        for k in range(output_dim):
+            y_pred_on_true[b, :, k] = np.interp(u_star, u_grid_full, y_pred_native[b, :, k])
+
+    abs_err  = np.abs(y_pred_on_true - np.array(y_test, dtype=np.float64))
+    err_flat = abs_err.reshape(-1, output_dim)
+    q90 = np.quantile(err_flat, 0.90, axis=0)
+
+    print("\n0.90-quantile |error| per output:")
+    for i in range(output_dim):
+        print(f"  [{i}] {titles[i]}: {q90[i]:.4e}")
+
+    tag = "log"
+    err_path = os.path.join(PLOTS_DIR, f"error_distribution_{tag}.png")
+    plot_error_histogram(err_flat, q90, titles, err_path)
+    print(f"[saved] {err_path}")
+
+    # q90 per age bin, using the true physical age of every test grid point
+    valid = strictly_increasing_mask(t_true_full)
+    print(f"age-binned stats exclude {(~valid).sum()} of {valid.size} grid points "
+          f"({100*(~valid).mean():.1f}%) where the true age is repeated (padded track ends)")
+    q90_valid = np.quantile(abs_err[valid], 0.90, axis=0)
+    print("0.90-quantile |error| per output, non-padded points only: "
+          + ", ".join(f"{v:.3e}" for v in q90_valid))
+    save_errors(os.path.join(PLOTS_DIR, f"errors_{tag}.npz"), abs_err, t_true_full, valid)
+    table, counts = q90_per_age_bin(abs_err, t_true_full, AGE_BIN_EDGES_GYR, valid=valid)
+    print_q90_table(table, counts, AGE_BIN_EDGES_GYR, titles)
+    save_q90_table_csv(os.path.join(PLOTS_DIR, f"q90_per_age_bin_{tag}.csv"),
+                       table, counts, AGE_BIN_EDGES_GYR, titles)
+    q90_age_path = os.path.join(PLOTS_DIR, f"q90_vs_age_{tag}.png")
+    plot_q90_vs_age(table, AGE_BIN_EDGES_GYR, titles, q90_age_path)
+    print(f"[saved] {q90_age_path}")
 
 
 if __name__ == "__main__":

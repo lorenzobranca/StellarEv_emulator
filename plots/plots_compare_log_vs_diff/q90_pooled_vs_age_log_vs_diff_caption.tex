@@ -1,0 +1,17 @@
+% Caption for q90_pooled_vs_age_log_vs_diff.pdf (produced by plot_q90_pooled_log_vs_diff.py)
+\caption{Accuracy of the two emulator variants as a function of stellar age.
+Shown is the 90th percentile of the absolute error, $q_{90}\,|y_{\rm pred}-y_{\rm true}|$,
+pooled over all seven output channels ($\log T_{\rm eff}$, $\log P_{\rm rot}$,
+$\log B_{\rm cor}$, $\log P_{\rm atm}$, $\log\tau_{\rm cz}$, $\log\dot M$, $\log L$) and
+over all 432 test-set tracks, evaluated at the true age of each grid point and binned
+in age. The solid blue line uses the time model that predicts $\log$ age directly
+(``log'' variant); the dashed red line uses the time model that predicts the age
+increment $\Delta t$ and reconstructs the age by cumulative summation
+(``$\Delta t$'' variant). Both variants share the same output network, so the
+difference between the curves is due entirely to the age mapping. The age axis is
+logarithmic below 1\,Gyr (half-decade bins) and linear above (1\,Gyr bins); the thin
+vertical line marks the transition. Grid points where the reference age is repeated
+(the padded ends of the tracks, 13\% of all points) are excluded, since the
+age-to-output mapping is not defined there. The log variant is more accurate by up to
+a factor of 40 during the pre-main-sequence, the two are equivalent between 1 and
+5\,Gyr, and the $\Delta t$ variant is more accurate by a factor of 2--3 at later ages.}
